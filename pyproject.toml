@@ -1,0 +1,38 @@
+[project]
+name = "zerofin"
+version = "0.1.0"
+description = "Personal financial intelligence system — collects market data, discovers relationships via knowledge graph, generates plain-English briefings"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "yfinance",
+    "fredapi",
+    "psycopg[binary]",
+    "neo4j",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "httpx",
+    "pendulum",
+    "voyageai",
+    "polars",
+    "openai",
+    "fastapi",
+    "uvicorn",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
