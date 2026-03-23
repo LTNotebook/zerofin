@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # "entity_type" + "entity_id" together identify WHAT this data is about.
 # "metric" says WHICH measurement it is (close_price, volume, value, etc.).
 CREATE_DATA_POINTS_TABLE = """
-CREATE TABLE IF NOT EXISTS data_points (
+CREATE TABLE IF NOT EXISTS market_data (
     id              SERIAL PRIMARY KEY,
     entity_type     TEXT NOT NULL,
     entity_id       TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS data_points (
     collected_at    TIMESTAMP NOT NULL DEFAULT NOW(),
     source          TEXT NOT NULL,
     is_revised      BOOLEAN DEFAULT FALSE,
-    revision_of     INTEGER REFERENCES data_points(id)
+    revision_of     INTEGER REFERENCES market_data(id)
 );
 """
 
@@ -54,13 +54,13 @@ CREATE TABLE IF NOT EXISTS data_points (
 # for entity X between date A and date B". Without this index, Postgres would
 # have to scan every row in the table — with it, lookups are near-instant.
 CREATE_DATA_POINTS_INDEX = """
-CREATE INDEX IF NOT EXISTS idx_data_points_entity_time
-ON data_points (entity_type, entity_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_market_data_entity_time
+ON market_data (entity_type, entity_id, timestamp);
 """
 
 # Insert a single data point and return the generated id so we can reference it.
 INSERT_DATA_POINT = """
-INSERT INTO data_points (
+INSERT INTO market_data (
     entity_type, entity_id, metric, value, unit,
     timestamp, source, is_revised, revision_of
 )
@@ -75,7 +75,7 @@ RETURNING id;
 # ORDER BY timestamp DESC gives us newest-first, LIMIT caps the count.
 SELECT_LATEST_DATA_POINTS = """
 SELECT *
-FROM data_points
+FROM market_data
 WHERE entity_type = %(entity_type)s
   AND entity_id   = %(entity_id)s
   AND metric      = %(metric)s
@@ -87,7 +87,7 @@ LIMIT %(limit)s;
 # Ordered oldest-first so the data is in chronological order for analysis.
 SELECT_DATA_POINTS_RANGE = """
 SELECT *
-FROM data_points
+FROM market_data
 WHERE entity_type = %(entity_type)s
   AND entity_id   = %(entity_id)s
   AND metric      = %(metric)s
@@ -302,7 +302,7 @@ class PostgresStorage:
     # Read operations
     # ------------------------------------------------------------------
 
-    def get_latest_data_points(
+    def get_latest_market_data(
         self,
         *,
         entity_type: str,
@@ -346,7 +346,7 @@ class PostgresStorage:
         logger.debug("Found %d data points", len(rows))
         return rows
 
-    def get_data_points_range(
+    def get_market_data_range(
         self,
         *,
         entity_type: str,

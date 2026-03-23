@@ -53,7 +53,7 @@ zerofin/
 ### Style
 - Type hints on ALL function parameters and return values
 - Docstrings on functions that aren't obvious — skip if the name already says it all
-- Comment heavily — the developer is learning Python
+- Comment where it adds value — explain the "why", skip the obvious
 - Aim for functions under 30 lines — split if it helps readability, but don't force it
 - Descriptive names: `get_daily_prices()` not `gdp()` or `fetch()`
 - No abbreviations: `article_count` not `ac` or `artCnt`
@@ -95,10 +95,10 @@ zerofin/
 - Worker NEVER talks to FastAPI. FastAPI NEVER talks to worker. Both talk to databases.
 - Settings stored in PostgreSQL. Worker reads settings from DB.
 - All AI analysis goes through DeepSeek API, NOT Claude API (cost)
-- Data collection plugins follow a standard interface (see `data/base.py`)
+- Data collection plugins follow a standard interface (see `data/collector.py`)
 
 ## Entity and Relationship Schema
-- 12 entity types and 15 relationship types based on FinDKG ontology
+- 12 entity types and 16 relationship types based on FinDKG ontology (+ DEPENDS_ON)
 - Full schema details in Obsidian docs: `10 - Entity and Relationship Types.md`
 - All relationships have: confidence, times_tested, times_confirmed, valid_from, valid_until, source, status
 
@@ -108,7 +108,7 @@ zerofin/
 - NEVER use Pandas — use Polars
 - NEVER store data without validation
 - NEVER insert into Neo4j one record at a time — always batch with UNWIND
-- ALWAYS run `ruff check` before considering work done
+- Ruff runs automatically via pre-commit hook — don't run it manually
 - ALWAYS write tests for new functionality
 - ALWAYS use uv commands, never raw pip
 
@@ -117,7 +117,7 @@ zerofin/
 - Be concise and direct — avoid walls of text
 - Push back when something is wrong — don't just agree
 - Use visual diagrams for architecture discussions
-- Comment code heavily — assume the reader is learning
+- Comment where it adds value — explain the "why", not the obvious
 - Ask before making big architectural decisions
 - Use parallel agents when building multiple files
 - When generating code, prioritize readability over cleverness

@@ -62,7 +62,7 @@ def test_postgres() -> None:
 
     # 'with' automatically connects and disconnects when done
     with PostgresStorage() as db:
-        # Create the data_points table (safe to run multiple times)
+        # Create the market_data table (safe to run multiple times)
         db.setup_tables()
         logger.info("  Tables created successfully")
 
@@ -80,7 +80,7 @@ def test_postgres() -> None:
         logger.info("  Inserted test data point with id=%d", inserted_id)
 
         # Read it back to prove reads work
-        rows = db.get_latest_data_points(
+        rows = db.get_latest_market_data(
             entity_type="asset",
             entity_id="TEST_TICKER",
             metric="close_price",
