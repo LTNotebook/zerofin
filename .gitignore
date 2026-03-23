@@ -4,6 +4,8 @@
 
 # Claude Code
 .claude/
+.agents/
+skills-lock.json
 
 # Python
 __pycache__/
