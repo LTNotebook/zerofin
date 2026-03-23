@@ -377,13 +377,20 @@ class PriceCollector(BaseCollector):
                         close_val = close_series[date_index]
                         volume_val = volume_series[date_index]
 
+                        # Skip rows where both values are NaN — these are
+                        # non-trading days (weekends, holidays). Not a failure.
+                        close_is_nan = close_val != close_val
+                        volume_is_nan = volume_val != volume_val
+                        if close_is_nan and volume_is_nan:
+                            continue
+
                         points = _parse_batch_row(ticker, date_index, close_val, volume_val)
                         valid_points.extend(points)
 
-                        # Each row should produce 2 points (close + volume).
-                        # Count the shortfall as failures.
-                        expected_from_row = 2
-                        row_failed += expected_from_row - len(points)
+                        # Count actual validation failures — rows that HAD data
+                        # but failed Pydantic validation. NaN skips don't count.
+                        expected = (0 if close_is_nan else 1) + (0 if volume_is_nan else 1)
+                        row_failed += expected - len(points)
 
                     if row_failed > 0:
                         logger.warning(
