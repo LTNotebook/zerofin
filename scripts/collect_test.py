@@ -16,7 +16,9 @@ from __future__ import annotations
 import logging
 
 from zerofin.data.economic import EconomicCollector
+from zerofin.data.news import NewsCollector
 from zerofin.data.prices import PriceCollector
+from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
 
 # Set up logging so we can see what's happening
@@ -67,33 +69,66 @@ def test_economic() -> None:
         logger.error("  Economic collection FAILED: %s", error)
 
 
+def test_news() -> None:
+    """Pull latest news from RSS feeds and store in Neo4j."""
+    logger.info("=" * 60)
+    logger.info("TEST 3: Collecting news from RSS feeds")
+    logger.info("=" * 60)
+
+    try:
+        # Only test with first 3 feeds to keep it quick
+        from zerofin.data.news import RSS_FEEDS
+
+        test_feeds = RSS_FEEDS[:3]
+        with GraphStorage() as graph:
+            collector = NewsCollector(graph=graph, feeds=test_feeds)
+            result = collector.collect_latest()
+
+        logger.info("  Results:")
+        logger.info("    Stored: %d articles", result.get("stored", 0))
+        logger.info("    Failed: %d feeds", result.get("failed", 0))
+        logger.info("    Duplicates skipped: %d", result.get("duplicates_skipped", 0))
+        logger.info("  News collection PASSED")
+
+    except Exception as error:
+        logger.error("  News collection FAILED: %s", error)
+
+
 def show_database_summary() -> None:
-    """Show how many data points are now in PostgreSQL."""
+    """Show how many data points are now in PostgreSQL and Neo4j."""
     logger.info("=" * 60)
     logger.info("DATABASE SUMMARY")
     logger.info("=" * 60)
 
     try:
         with PostgresStorage() as db:
-            # Count total data points
-            with db._conn.cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) AS total FROM market_data")
-                row = cursor.fetchone()
-                total = row["total"] if row else 0
+            total_rows = db.execute_query(
+                "SELECT COUNT(*) AS total FROM market_data"
+            )
+            total = total_rows[0]["total"] if total_rows else 0
 
-            # Count by entity type
-            with db._conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT entity_type, COUNT(*) AS count FROM market_data GROUP BY entity_type"
-                )
-                rows = cursor.fetchall()
+            type_rows = db.execute_query(
+                "SELECT entity_type, COUNT(*) AS count "
+                "FROM market_data GROUP BY entity_type"
+            )
 
-            logger.info("  Total data points in database: %d", total)
-            for row in rows:
+            logger.info("  PostgreSQL market_data: %d rows", total)
+            for row in type_rows:
                 logger.info("    %s: %d", row["entity_type"], row["count"])
 
     except Exception as error:
-        logger.error("  Could not read database: %s", error)
+        logger.error("  Could not read PostgreSQL: %s", error)
+
+    try:
+        with GraphStorage() as graph:
+            article_count = graph.run_query(
+                "MATCH (a:Article) RETURN count(a) AS total"
+            )
+            total_articles = article_count[0]["total"] if article_count else 0
+            logger.info("  Neo4j articles: %d", total_articles)
+
+    except Exception as error:
+        logger.error("  Could not read Neo4j: %s", error)
 
 
 def main() -> None:
@@ -109,6 +144,9 @@ def main() -> None:
     logger.info("")
 
     test_economic()
+    logger.info("")
+
+    test_news()
     logger.info("")
 
     show_database_summary()

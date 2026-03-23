@@ -3,7 +3,7 @@
 ## Project Overview
 A personal financial intelligence system that collects market data, discovers relationships between financial entities using a knowledge graph (Neo4j), and generates plain-English briefings. Built with Python, two databases (PostgreSQL, Neo4j), DeepSeek API for automated analysis, and Claude Code for interactive exploration.
 
-Full design docs: `C:/Users/B/Desktop/The Base/Financial Project/` (11 Obsidian files covering architecture, data model, build plan, etc.)
+Full design docs: `C:/Users/B/Desktop/The Base/Financial Project/` (15+ Obsidian files covering architecture, data model, build plan, tracking list, RSS feeds, brainstorming, etc.)
 
 ## Tech Stack
 - **Language:** Python 3.11+
@@ -26,15 +26,20 @@ zerofin/
 │   └── zerofin/           # Main Python package
 │       ├── config.py      # Settings from .env via pydantic-settings
 │       ├── data/          # Data collection plugins
+│       │   ├── collector.py   # BaseCollector template
+│       │   ├── tickers.py     # All tracked tickers + FRED indicators
+│       │   ├── prices.py      # yfinance batch price collector
+│       │   ├── economic.py    # FRED API economic collector
+│       │   └── news.py        # RSS feed news collector
 │       ├── storage/       # Database connections (postgres, neo4j)
 │       ├── models/        # Pydantic data models
-│       ├── analysis/      # Correlation engine, relationship discovery
-│       ├── ai/            # DeepSeek integration, prompts
-│       └── delivery/      # Briefing generation, alerts
+│       ├── analysis/      # Correlation engine, relationship discovery (Phase 2)
+│       ├── ai/            # DeepSeek integration, prompts (Phase 2)
+│       └── delivery/      # Briefing generation, alerts (Phase 4)
 ├── scripts/               # Runnable scripts (setup, seed, daily run)
-├── web/                   # FastAPI + React dashboard (later phases)
+├── web/                   # FastAPI + React dashboard (Phase 5)
 ├── tests/                 # Pytest tests
-├── docker-compose.yml     # Database infrastructure
+├── docker-compose.yml     # Database infrastructure (reads from .env)
 ├── pyproject.toml         # uv config
 └── .env                   # API keys (NEVER committed)
 ```
@@ -123,3 +128,5 @@ zerofin/
 - When generating code, prioritize readability over cleverness
 - Ask before implementing — we discuss and agree before you write code
 - Don't be pushy — if we're exploring or brainstorming, go with it
+- Always ask before committing or pushing — user reviews code first
+- Don't take silent actions — explain what you're doing before creating files or running commands

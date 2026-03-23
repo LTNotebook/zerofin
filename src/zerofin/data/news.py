@@ -64,20 +64,6 @@ USER_AGENT = "Zerofin/1.0 (Financial Research Bot; +https://github.com/zerofin)"
 RSS_FEEDS: list[dict[str, str]] = [
     # ── Major Financial News ──────────────────────────────────────────
     {
-        "name": "CNBC Top News",
-        "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "category": "general",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
-        "name": "CNBC World News",
-        "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
         "name": "CNBC Finance",
         "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html",
         "category": "general",
@@ -99,29 +85,22 @@ RSS_FEEDS: list[dict[str, str]] = [
         "content_type": "summary",
     },
     {
-        "name": "AP News Business",
-        "url": "https://apnews.com/business.rss",
-        "category": "general",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
         "name": "MarketWatch Top Stories",
-        "url": "https://www.marketwatch.com/rss/topstories",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
         "category": "general",
         "priority": "must_have",
         "content_type": "summary",
     },
     {
-        "name": "MarketWatch Market Pulse",
-        "url": "https://www.marketwatch.com/rss/marketpulse",
+        "name": "MarketWatch Real-Time Headlines",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
     },
     {
-        "name": "MarketWatch Breaking News",
-        "url": "https://www.marketwatch.com/rss/breakingnews",
+        "name": "MarketWatch Bulletins",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_bulletins",
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
@@ -197,27 +176,8 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "full_text",
     },
-    {
-        "name": "US Treasury Auction Announcements",
-        "url": "https://www.treasurydirect.gov/TA_WS/securities/announced/rss",
-        "category": "government",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "US Treasury Auction Results",
-        "url": "https://www.treasurydirect.gov/TA_WS/securities/auctioned/rss",
-        "category": "government",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "BLS All Updates",
-        "url": "https://www.bls.gov/feed/bls_latest.rss",
-        "category": "economy",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # NOTE: BLS feeds return 403 Forbidden. BLS data comes through FRED instead.
+    # If BLS fixes their RSS, add back: empsit, cpi, ppi, jolts, eci, realer, prod2, ximpim
     {
         "name": "BEA All Releases",
         "url": "https://apps.bea.gov/rss/rss.xml",
@@ -297,20 +257,6 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "summary",
     },
-    {
-        "name": "Nikkei Asia",
-        "url": "https://asia.nikkei.com/rss/feed/nar",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "headline_only",
-    },
-    {
-        "name": "Al Jazeera Economy",
-        "url": "https://www.aljazeera.com/xml/rss/economy.xml",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
     # ── Crypto ────────────────────────────────────────────────────────
     {
         "name": "CoinDesk",
@@ -372,13 +318,6 @@ RSS_FEEDS: list[dict[str, str]] = [
         "content_type": "full_text",
     },
     {
-        "name": "Business Wire All News",
-        "url": "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFtRXA==",
-        "category": "earnings",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
         "name": "GlobeNewsWire All Releases",
         "url": "https://www.globenewswire.com/RssFeed/feedTitle/GlobeNewswire",
         "category": "earnings",
@@ -423,6 +362,10 @@ RSS_FEEDS: list[dict[str, str]] = [
         "content_type": "full_text",
     },
 ]
+
+# Maximum articles to process per feed per pull. Prevents high-volume
+# feeds (GovInfo, BBC, SCMP) from dominating the article count.
+MAX_ARTICLES_PER_FEED = 20
 
 # ── Atom namespace ────────────────────────────────────────────────────
 # Atom feeds use XML namespaces. We need to tell ElementTree about them
@@ -757,6 +700,10 @@ class NewsCollector(BaseCollector):
         if not raw_articles:
             logger.info("No articles found in feed '%s'", feed_name)
             return {"feed": feed_name, "stored": 0, "failed": 0, "duplicates": 0}
+
+        # Cap the number of articles per feed to prevent firehoses
+        if len(raw_articles) > MAX_ARTICLES_PER_FEED:
+            raw_articles = raw_articles[:MAX_ARTICLES_PER_FEED]
 
         # ── Step 3: Deduplicate against Neo4j ─────────────────────────
         # Extract all URLs from this batch, then check which ones
