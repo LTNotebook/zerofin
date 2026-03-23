@@ -49,6 +49,15 @@ DEFAULT_TICKERS: list[str] = ALL_TICKERS
 # 1 year gives enough data for meaningful trend analysis.
 DEFAULT_HISTORY_PERIOD = "1y"
 
+# How far back to look when collecting the "latest" price.
+# We ask for 5 days so weekends and holidays don't return empty results —
+# we just take the last row, which will always be the most recent trading day.
+DEFAULT_LATEST_PERIOD = "5d"
+
+# Decimal precision for financial prices — 4 decimal places covers
+# penny stocks and forex pairs without excess noise.
+PRICE_DECIMAL_PLACES = Decimal("0.0001")
+
 # The data source name we record in the database.
 # Must match one of VALID_SOURCES in models/entities.py.
 DATA_SOURCE = "yfinance"
@@ -101,8 +110,8 @@ def _parse_batch_row(
         if close_value != close_value:
             logger.debug("Close price is NaN for %s on %s — skipping", ticker, date_index)
         else:
-            # Round to 4 decimal places — good enough for any financial price
-            close_decimal = Decimal(str(close_value)).quantize(Decimal("0.0001"))
+            # Round to the standard price precision defined at the top of this file
+            close_decimal = Decimal(str(close_value)).quantize(PRICE_DECIMAL_PLACES)
 
             close_point = DataPointCreate(
                 entity_type="asset",
@@ -223,7 +232,7 @@ class PriceCollector(BaseCollector):
             - tickers_failed: Number of tickers that had errors
         """
         logger.info("Collecting latest prices for %d tickers", len(self.tickers))
-        return self._collect(period="5d", latest_only=True)
+        return self._collect(period=DEFAULT_LATEST_PERIOD, latest_only=True)
 
     def collect_history(self, **kwargs: Any) -> dict[str, Any]:
         """Pull historical prices for all tickers and store them.

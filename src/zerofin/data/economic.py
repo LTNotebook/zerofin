@@ -453,7 +453,7 @@ def _is_null_value(value: Any) -> bool:
     # way to check for NaN without importing math or numpy.
     try:
         return value != value
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
 
 

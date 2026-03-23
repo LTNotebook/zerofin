@@ -79,13 +79,14 @@ class TestDataPointCreate:
                 source="yfinance",
             )
 
-        # Check that the error mentions entity_type
+        # Verify that the error is specifically on the entity_type field,
+        # not some other field that happened to fail at the same time.
         errors = error_info.value.errors()
-        assert any("entity_type" in str(e) for e in errors)
+        assert any(e["loc"] == ("entity_type",) for e in errors)
 
     def test_invalid_source_rejected(self) -> None:
         """A data source we don't recognize should be rejected."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as error_info:
             DataPointCreate(
                 entity_type="asset",
                 entity_id="NVDA",
@@ -95,9 +96,12 @@ class TestDataPointCreate:
                 source="made_up_source",  # not in our valid sources list
             )
 
+        errors = error_info.value.errors()
+        assert any(e["loc"] == ("source",) for e in errors)
+
     def test_empty_entity_id_rejected(self) -> None:
         """An empty entity ID should be rejected — we need to know WHAT this data is for."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as error_info:
             DataPointCreate(
                 entity_type="asset",
                 entity_id="",  # empty — not allowed
@@ -107,9 +111,12 @@ class TestDataPointCreate:
                 source="yfinance",
             )
 
+        errors = error_info.value.errors()
+        assert any(e["loc"] == ("entity_id",) for e in errors)
+
     def test_empty_metric_rejected(self) -> None:
         """An empty metric should be rejected — we need to know WHAT was measured."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as error_info:
             DataPointCreate(
                 entity_type="asset",
                 entity_id="NVDA",
@@ -118,6 +125,9 @@ class TestDataPointCreate:
                 timestamp=pendulum.now("UTC"),
                 source="yfinance",
             )
+
+        errors = error_info.value.errors()
+        assert any(e["loc"] == ("metric",) for e in errors)
 
     def test_revision_fields_work(self) -> None:
         """Data revisions should be trackable.
@@ -195,7 +205,7 @@ class TestEntityCreate:
             )
 
         errors = error_info.value.errors()
-        assert any("label" in str(e) for e in errors)
+        assert any(e["loc"] == ("label",) for e in errors)
 
     def test_all_12_labels_accepted(self) -> None:
         """Every one of our 12 entity types should be accepted."""
@@ -224,21 +234,27 @@ class TestEntityCreate:
 
     def test_empty_id_rejected(self) -> None:
         """An empty ID should be rejected."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as error_info:
             EntityCreate(
                 id="",  # empty — not allowed
                 label="Company",
                 name="NVIDIA Corporation",
             )
 
+        errors = error_info.value.errors()
+        assert any(e["loc"] == ("id",) for e in errors)
+
     def test_empty_name_rejected(self) -> None:
         """An empty name should be rejected."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as error_info:
             EntityCreate(
                 id="NVDA",
                 label="Company",
                 name="",  # empty — not allowed
             )
+
+        errors = error_info.value.errors()
+        assert any(e["loc"] == ("name",) for e in errors)
 
     def test_metadata_is_optional(self) -> None:
         """Metadata can be left out — not every entity needs extra info."""

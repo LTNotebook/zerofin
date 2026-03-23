@@ -393,3 +393,59 @@ class PostgresStorage:
 
         logger.debug("Found %d data points in range", len(rows))
         return rows
+
+    # ------------------------------------------------------------------
+    # Generic query execution
+    # ------------------------------------------------------------------
+
+    def execute_query(self, query: str, params: dict | None = None) -> list[dict]:
+        """Run an arbitrary SQL query and return results as a list of dicts.
+
+        Use this for one-off queries in scripts or exploratory work where
+        none of the specialised methods above fit. For anything called in
+        a tight loop, prefer writing a dedicated method with a named constant.
+
+        SELECT statements return every matching row as a dict whose keys
+        match the column names (e.g. [{"id": 1, "entity_id": "NVDA", ...}]).
+
+        INSERT / UPDATE / DELETE statements are committed automatically and
+        return an empty list — if you need the affected rows back, add a
+        RETURNING clause to your query and it will come through as a SELECT.
+
+        Args:
+            query:  Any valid SQL string. Use %(name)s placeholders for
+                    values — never build the query by string concatenation.
+            params: Dict of values to bind to the %(name)s placeholders.
+                    Pass None (or omit) when the query has no parameters.
+
+        Returns:
+            List of dicts for SELECT-style queries; empty list otherwise.
+
+        Example:
+            rows = db.execute_query(
+                "SELECT * FROM market_data WHERE entity_id = %(eid)s",
+                {"eid": "NVDA"},
+            )
+        """
+        # Normalise the query so we can detect SELECT without worrying about
+        # leading whitespace or mixed case (e.g. "  select * FROM ...").
+        query_type = query.strip().split()[0].upper()
+
+        logger.debug("Executing %s query via execute_query()", query_type)
+
+        with self._conn.cursor() as cursor:
+            # psycopg v3 accepts None params just fine — it treats it the same
+            # as passing no params at all, so no special-casing needed here.
+            cursor.execute(query, params)
+
+            # For SELECT (and RETURNING clauses on writes), fetch all rows.
+            # For everything else, commit the transaction and return nothing.
+            if query_type == "SELECT":
+                rows: list[dict] = cursor.fetchall()
+                logger.debug("execute_query() returned %d row(s)", len(rows))
+                return rows
+
+        # Non-SELECT path — commit so the write is persisted.
+        self._conn.commit()
+        logger.debug("execute_query() committed %s statement", query_type)
+        return []

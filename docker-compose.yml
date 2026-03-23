@@ -3,11 +3,13 @@ services:
     image: neo4j:5.26-community
     container_name: zerofin-neo4j
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "7474:7474"  # Browser UI
       - "7687:7687"  # Bolt protocol
     environment:
-      - NEO4J_AUTH=neo4j/changeme123
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
       - NEO4J_server_memory_heap_initial__size=1g
       - NEO4J_server_memory_heap_max__size=2g
       - NEO4J_server_memory_pagecache_size=512m
@@ -19,12 +21,14 @@ services:
     image: postgres:17
     container_name: zerofin-postgres
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=zerofin
-      - POSTGRES_USER=zerofin
-      - POSTGRES_PASSWORD=changeme123
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -32,6 +36,8 @@ services:
     image: adminer
     container_name: zerofin-adminer
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "8080:8080"
 

@@ -16,13 +16,12 @@ dependencies = [
     "pendulum",
     "voyageai",
     "polars",
-    "openai",
     "fastapi",
     "uvicorn",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest",
     "ruff",
 ]
