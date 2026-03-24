@@ -396,6 +396,47 @@ class PostgresStorage:
         logger.debug("Found %d data points in range", len(rows))
         return rows
 
+    def get_all_market_data_range(
+        self,
+        *,
+        start: pendulum.DateTime,
+        end: pendulum.DateTime,
+    ) -> list[dict]:
+        """Get ALL data points across ALL entities within a date range.
+
+        Unlike get_market_data_range() which fetches one entity at a time,
+        this pulls everything in one query. The correlation engine uses this
+        to load all price and indicator data in a single database call
+        instead of making 200 separate queries.
+
+        Returns rows in chronological order, grouped by entity. Each row
+        is a dict with: entity_type, entity_id, metric, value, timestamp.
+
+        Args:
+            start: Beginning of the date range (inclusive).
+            end:   End of the date range (inclusive).
+
+        Returns:
+            List of dicts, ordered by entity then timestamp.
+        """
+        logger.debug("Fetching ALL market data from %s to %s", start, end)
+
+        query = """
+            SELECT entity_type, entity_id, metric, value, timestamp
+            FROM market_data
+            WHERE timestamp >= %(start)s
+              AND timestamp <= %(end)s
+              AND metric != 'volume'
+            ORDER BY entity_type, entity_id, timestamp ASC;
+        """
+
+        with self._conn.cursor() as cursor:
+            cursor.execute(query, {"start": start, "end": end})
+            rows = cursor.fetchall()
+
+        logger.info("Loaded %d data points across all entities", len(rows))
+        return rows
+
     # ------------------------------------------------------------------
     # Generic query execution
     # ------------------------------------------------------------------

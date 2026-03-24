@@ -38,6 +38,38 @@ class Settings(BaseSettings):
     VOYAGE_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
 
+    # --- Correlation Engine (long-term relationship discovery) ---
+
+    # Rolling windows for relationship storage (medium + long only)
+    # 21-day is reserved for future signal/alert detection, not stored as candidates
+    CORRELATION_WINDOWS: list[int] = [63, 252]
+    # Minimum overlapping data points as a fraction of the window size.
+    # 0.75 means we need at least 75% of the window's days to have data.
+    # For a 252-day window that's ~189 days. For 63 days that's ~47.
+    CORRELATION_MIN_OBSERVATIONS_RATIO: float = 0.75
+
+    # Tiered strength thresholds
+    CORRELATION_TIER_STORE: float = 0.6       # Minimum to store — strong signal required
+    CORRELATION_TIER_ACTIONABLE: float = 0.5  # Moderate, use in analysis
+    CORRELATION_TIER_STRONG: float = 0.7      # High-confidence
+
+    # FDR alpha — 0.10 for exploratory discovery (we validate later via review queue)
+    CORRELATION_FDR_ALPHA: float = 0.10
+
+    # Lag days to test — stock-to-stock vs macro-to-stock
+    CORRELATION_LAGS_EQUITY: list[int] = [0, 1, 2, 3, 5, 10]
+    CORRELATION_LAGS_MACRO: list[int] = [0, 1, 2, 3, 5, 10, 21, 63]
+
+    # Winsorize: cap extreme daily moves at these percentiles before correlating
+    CORRELATION_WINSORIZE_LOW: float = 0.01   # 1st percentile
+    CORRELATION_WINSORIZE_HIGH: float = 0.99  # 99th percentile
+
+    # Stability filter: require correlation in both halves of the window
+    CORRELATION_STABILITY_FILTER: bool = True
+
+    # Run Spearman alongside Pearson as a sanity check
+    CORRELATION_SPEARMAN_CHECK: bool = True
+
     model_config = {
         "env_file": str(PROJECT_ROOT / ".env"),
         "env_file_encoding": "utf-8",

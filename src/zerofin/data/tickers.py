@@ -194,6 +194,123 @@ CRYPTO: list[str] = [
     "SOL-USD",  # Solana
 ]
 
+# =============================================================================
+# Stock-to-Sector ETF Mapping
+# =============================================================================
+# Maps each individual stock to its GICS sector ETF and optional sub-sector ETF.
+# Used by the correlation engine for market + sector beta removal.
+# Source: stockanalysis.com ETF holdings, GICS classifications (verified March 2026)
+
+STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
+    # Technology
+    "AAPL":  {"sector": "XLK"},
+    "MSFT":  {"sector": "XLK"},
+    "NVDA":  {"sector": "XLK", "sub_sector": "SMH"},
+    "AVGO":  {"sector": "XLK", "sub_sector": "SMH"},
+    "AMD":   {"sector": "XLK", "sub_sector": "SMH"},
+    "TSM":   {"sector": "XLK", "sub_sector": "SMH"},
+    "ASML":  {"sector": "XLK", "sub_sector": "SMH"},
+    "MU":    {"sector": "XLK", "sub_sector": "SMH"},
+    "QCOM":  {"sector": "XLK", "sub_sector": "SMH"},
+    "INTC":  {"sector": "XLK", "sub_sector": "SMH"},
+    "ARM":   {"sector": "XLK", "sub_sector": "SMH"},
+    "CRWD":  {"sector": "XLK", "sub_sector": "HACK"},
+    "PANW":  {"sector": "XLK", "sub_sector": "HACK"},
+    # Communication Services
+    "GOOGL": {"sector": "XLC"},
+    "META":  {"sector": "XLC"},
+    # Consumer Discretionary
+    "AMZN":  {"sector": "XLY"},
+    "TSLA":  {"sector": "XLY"},
+    "HD":    {"sector": "XLY"},
+    "MCD":   {"sector": "XLY"},
+    # Financials
+    "JPM":   {"sector": "XLF"},
+    "GS":    {"sector": "XLF"},
+    "BAC":   {"sector": "XLF"},
+    "BRK-B": {"sector": "XLF"},
+    "V":     {"sector": "XLF"},
+    "MA":    {"sector": "XLF"},
+    # Energy
+    "XOM":   {"sector": "XLE"},
+    "CVX":   {"sector": "XLE"},
+    "COP":   {"sector": "XLE"},
+    "OXY":   {"sector": "XLE"},
+    # Industrials
+    "LMT":   {"sector": "XLI", "sub_sector": "ITA"},
+    "RTX":   {"sector": "XLI", "sub_sector": "ITA"},
+    "GD":    {"sector": "XLI", "sub_sector": "ITA"},
+    "NOC":   {"sector": "XLI", "sub_sector": "ITA"},
+    # Health Care
+    "UNH":   {"sector": "XLV"},
+    "JNJ":   {"sector": "XLV"},
+    "LLY":   {"sector": "XLV"},
+    "PFE":   {"sector": "XLV"},
+    "ABBV":  {"sector": "XLV"},
+    "MRNA":  {"sector": "XLV", "sub_sector": "IBB"},
+    "AMGN":  {"sector": "XLV", "sub_sector": "IBB"},
+    # Consumer Staples
+    "WMT":   {"sector": "XLP"},
+    "COST":  {"sector": "XLP"},
+    "PG":    {"sector": "XLP"},
+    "KO":    {"sector": "XLP"},
+}
+
+
+# =============================================================================
+# Redundancy Groups — near-identical securities that flood the correlation matrix
+# =============================================================================
+# When two securities track the same underlying, correlating them is meaningless
+# (r > 0.95). We group them and pick one representative per group.
+# The correlation engine skips intra-group pairs entirely.
+# Review quarterly with scripts/check_redundancy.py (future).
+# Source: ETF deduplication research, March 2026
+
+REDUNDANCY_GROUPS: dict[str, dict] = {
+    "em_equity": {
+        "representative": "IEMG",
+        "members": ["IEMG", "EEM", "EMXC"],
+        "reason": "All track emerging markets equity; IEMG has largest AUM",
+    },
+    "developed_intl": {
+        "representative": "IEFA",
+        "members": ["IEFA", "VEA"],
+        "reason": "Both track developed ex-US markets; near-identical holdings",
+    },
+    "broad_intl": {
+        "representative": "VXUS",
+        "members": ["VXUS"],
+        "reason": "Broad international (EM + developed); overlaps with other intl groups",
+    },
+    "treasury_10y": {
+        "representative": "DGS10",
+        "members": ["DGS10", "^TNX"],
+        "reason": "Same 10-year Treasury yield from two sources (FRED vs yfinance)",
+    },
+    "fed_funds_bounds": {
+        "representative": "DFEDTARU",
+        "members": ["DFEDTARU", "DFEDTARL"],
+        "reason": "Upper and lower bounds move in lockstep — effectively the same series",
+    },
+    "cpi_variants": {
+        "representative": "CPIAUCSL",
+        "members": ["CPIAUCSL", "CPIAUCNS"],
+        "reason": "Same CPI data, seasonally adjusted vs not; SA version is standard",
+    },
+    "thematic_ai_robotics": {
+        "representative": "AIQ",
+        "members": ["AIQ", "BOTZ", "ROBO"],
+        "reason": "All track AI/robotics/automation themes; high overlap in holdings and behavior",
+    },
+}
+
+# Build a quick lookup: ticker -> group name (for fast filtering in correlation engine)
+REDUNDANCY_LOOKUP: dict[str, str] = {}
+for group_name, group_info in REDUNDANCY_GROUPS.items():
+    for member in group_info["members"]:
+        REDUNDANCY_LOOKUP[member] = group_name
+
+
 # All yfinance tickers combined (deduplicated, order preserved)
 ALL_TICKERS: list[str] = list(
     dict.fromkeys(

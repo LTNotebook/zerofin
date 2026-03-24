@@ -3,7 +3,7 @@
 ## Project Overview
 A personal financial intelligence system that collects market data, discovers relationships between financial entities using a knowledge graph (Neo4j), and generates plain-English briefings. Built with Python, two databases (PostgreSQL, Neo4j), DeepSeek API for automated analysis, and Claude Code for interactive exploration.
 
-Full design docs: `C:/Users/B/Desktop/The Base/Financial Project/` (15+ Obsidian files covering architecture, data model, build plan, tracking list, RSS feeds, brainstorming, etc.)
+Full design docs: `C:/Users/B/Desktop/The Base/Projects/Financial Project/` (15+ Obsidian files covering architecture, data model, build plan, tracking list, RSS feeds, brainstorming, etc.)
 
 ## Tech Stack
 - **Language:** Python 3.11+
