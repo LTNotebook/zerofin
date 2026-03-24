@@ -125,8 +125,8 @@ class PostgresStorage:
     def connect(self) -> None:
         """Open a connection to PostgreSQL using credentials from settings.
 
-        The connection string (DSN) is built by config.py from individual
-        POSTGRES_HOST, POSTGRES_PORT, etc. environment variables.
+        Credentials are passed as individual keyword arguments rather than a
+        URL string so the password is never concatenated into a readable value.
         """
         if self._connection is not None and not self._connection.closed:
             logger.debug("Already connected to PostgreSQL — skipping reconnect")
@@ -143,8 +143,10 @@ class PostgresStorage:
         # a tuple, so we can access columns by name: row["entity_id"].
         # autocommit=False (the default) means we need to call conn.commit()
         # after writes — this is safer because we can roll back on errors.
+        # We unpack the params dict so the password stays as a separate value
+        # and is never joined into a URL string that could appear in logs.
         self._connection = psycopg.connect(
-            conninfo=settings.postgres_url,
+            **settings.postgres_connection_params(),
             row_factory=dict_row,
         )
 
@@ -427,6 +429,12 @@ class PostgresStorage:
                 {"eid": "NVDA"},
             )
         """
+        # Reject empty or whitespace-only queries immediately — they would
+        # cause a cryptic IndexError on the .split()[0] call below, and no
+        # valid caller should ever pass an empty string.
+        if not query or not query.strip():
+            raise ValueError("Query cannot be empty")
+
         # Normalise the query so we can detect SELECT without worrying about
         # leading whitespace or mixed case (e.g. "  select * FROM ...").
         query_type = query.strip().split()[0].upper()

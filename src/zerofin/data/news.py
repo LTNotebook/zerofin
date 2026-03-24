@@ -43,9 +43,10 @@ logger = logging.getLogger(__name__)
 # Some feeds are slow — 15 seconds is generous but avoids hanging forever.
 FEED_TIMEOUT_SECONDS = 15
 
-# User-agent string so feed servers know we're a bot, not a browser.
-# Some feeds block requests without a user-agent header.
-USER_AGENT = "Zerofin/1.0 (Financial Research Bot; +https://github.com/zerofin)"
+# Mining.com and other feeds return 403 Forbidden for bot User-Agents.
+# We use a browser UA to avoid being blocked. This is standard practice
+# for RSS feed readers.
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # noqa: E501
 
 # ── RSS Feed Registry ─────────────────────────────────────────────────
 # Every feed we pull from. Each entry has:
@@ -105,13 +106,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "headline_only",
     },
-    {
-        "name": "Yahoo Finance Headlines",
-        "url": "https://finance.yahoo.com/news/rssindex",
-        "category": "general",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # Yahoo Finance Headlines dropped — 65% personal finance clickbait. Tickers feed is cleaner.
     {
         "name": "Yahoo Finance Tickers",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,QQQ,AAPL&region=US&lang=en-US",
@@ -200,13 +195,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "full_text",
     },
-    {
-        "name": "TechCrunch",
-        "url": "https://techcrunch.com/feed/",
-        "category": "sector_tech",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
+    # TechCrunch dropped — tech industry focus, 65% noise for financial intelligence
     {
         "name": "OilPrice.com",
         "url": "https://oilprice.com/rss/main",
@@ -221,13 +210,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "summary",
     },
-    {
-        "name": "Fierce Pharma",
-        "url": "https://www.fiercepharma.com/rss/xml",
-        "category": "sector_healthcare",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # Fierce Pharma dropped — RSS feed broken, all titles return "Untitled"
     {
         "name": "HousingWire",
         "url": "https://www.housingwire.com/feed/",
@@ -265,20 +248,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "summary",
     },
-    {
-        "name": "CoinTelegraph",
-        "url": "https://cointelegraph.com/rss",
-        "category": "crypto",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
-        "name": "The Block",
-        "url": "https://www.theblock.co/rss.xml",
-        "category": "crypto",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # CoinTelegraph and The Block dropped — CoinDesk covers crypto with less noise
     # ── Central Banks (non-Fed) ───────────────────────────────────────
     {
         "name": "ECB Press Releases",
@@ -302,50 +272,11 @@ RSS_FEEDS: list[dict[str, str]] = [
         "content_type": "summary",
     },
     # ── Government / Regulatory ───────────────────────────────────────
-    {
-        "name": "GovInfo Federal Register",
-        "url": "https://www.govinfo.gov/rss/fr.xml",
-        "category": "government",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # GovInfo Federal Register dropped — titles contain zero info (just volume/date)
     # ── Earnings & Wire Services ──────────────────────────────────────
-    {
-        "name": "PR Newswire All Releases",
-        "url": "https://www.prnewswire.com/rss/news-releases-list.rss",
-        "category": "earnings",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "GlobeNewsWire All Releases",
-        "url": "https://www.globenewswire.com/RssFeed/feedTitle/GlobeNewswire",
-        "category": "earnings",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "GlobeNewsWire Earnings",
-        "url": (
-            "https://www.globenewswire.com/RssFeed/subjectcode/"
-            "13-Earnings Releases And Operating Results/"
-            "feedTitle/GlobeNewswire - Earnings Releases And Operating Results"
-        ),
-        "category": "earnings",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "GlobeNewsWire M&A",
-        "url": (
-            "https://www.globenewswire.com/RssFeed/subjectcode/"
-            "27-Mergers And Acquisitions/"
-            "feedTitle/GlobeNewswire - Mergers And Acquisitions"
-        ),
-        "category": "earnings",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
+    # PR Newswire dropped — firehose of irrelevant press releases (65% noise)
+    # GlobeNewsWire feeds dropped — All Releases too noisy, Earnings only micro-caps,
+    # M&A flooded with UK Form 8.3 filings
     # ── Alternative / Analytical ──────────────────────────────────────
     {
         "name": "Calculated Risk",
@@ -354,10 +285,34 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "full_text",
     },
+    # Marginal Revolution dropped — mostly cultural commentary, cryptic titles
+    # ── Healthcare / Pharma ─────────────────────────────────────────────
     {
-        "name": "Marginal Revolution",
-        "url": "https://marginalrevolution.com/feed",
-        "category": "analysis",
+        "name": "STAT News",
+        "url": "https://www.statnews.com/feed/",
+        "category": "sector_healthcare",
+        "priority": "must_have",
+        "content_type": "full_text",
+    },
+    {
+        "name": "BioPharma Dive",
+        "url": "https://www.biopharmadive.com/feeds/news/",
+        "category": "sector_healthcare",
+        "priority": "must_have",
+        "content_type": "summary",
+    },
+    {
+        "name": "FDA Press Releases",
+        "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
+        "category": "sector_healthcare",
+        "priority": "must_have",
+        "content_type": "summary",
+    },
+    # ── Metals / Mining ─────────────────────────────────────────────────
+    {
+        "name": "Mining.com",
+        "url": "https://www.mining.com/feed/",
+        "category": "sector_metals",
         "priority": "must_have",
         "content_type": "full_text",
     },
@@ -366,6 +321,15 @@ RSS_FEEDS: list[dict[str, str]] = [
 # Maximum articles to process per feed per pull. Prevents high-volume
 # feeds (GovInfo, BBC, SCMP) from dominating the article count.
 MAX_ARTICLES_PER_FEED = 20
+
+# Only accept articles published within this many days. Older articles
+# from feeds with deep history (BEA, MarketWatch) get filtered out.
+MAX_ARTICLE_AGE_DAYS = 7
+
+# Keyword filtering removed — too blunt a tool. Simple keywords can't
+# differentiate relevant from irrelevant articles with enough nuance.
+# Relevance filtering will be handled by DeepSeek in Phase 2 when it
+# reads articles and decides which ones mention financial entities.
 
 # ── Atom namespace ────────────────────────────────────────────────────
 # Atom feeds use XML namespaces. We need to tell ElementTree about them
@@ -607,7 +571,9 @@ class NewsCollector(BaseCollector):
         """
         total_stored = 0
         total_failed = 0
-        total_skipped_duplicate = 0
+        total_duplicates = 0
+        total_old = 0
+        total_noise = 0
         feed_results: list[dict[str, Any]] = []
 
         for feed_config in self._feeds:
@@ -618,7 +584,9 @@ class NewsCollector(BaseCollector):
                 result = self._process_single_feed(feed_config)
                 total_stored += result["stored"]
                 total_failed += result["failed"]
-                total_skipped_duplicate += result["duplicates"]
+                total_duplicates += result.get("duplicates", 0)
+                total_old += result.get("old", 0)
+                total_noise += result.get("noise", 0)
                 feed_results.append(result)
             except Exception:
                 # Catch-all for anything unexpected. We already handle
@@ -632,6 +600,8 @@ class NewsCollector(BaseCollector):
                         "stored": 0,
                         "failed": 1,
                         "duplicates": 0,
+                        "old": 0,
+                        "noise": 0,
                         "error": "unexpected_error",
                     }
                 )
@@ -639,7 +609,9 @@ class NewsCollector(BaseCollector):
         return self._build_summary(
             stored=total_stored,
             failed=total_failed,
-            duplicates=total_skipped_duplicate,
+            duplicates=total_duplicates,
+            old=total_old,
+            noise=total_noise,
             feeds_processed=len(feed_results),
             feed_results=feed_results,
         )
@@ -703,6 +675,12 @@ class NewsCollector(BaseCollector):
 
         # Cap the number of articles per feed to prevent firehoses
         if len(raw_articles) > MAX_ARTICLES_PER_FEED:
+            logger.info(
+                "Feed '%s' capped at %d articles (had %d)",
+                feed_name,
+                MAX_ARTICLES_PER_FEED,
+                len(raw_articles),
+            )
             raw_articles = raw_articles[:MAX_ARTICLES_PER_FEED]
 
         # ── Step 3: Deduplicate against Neo4j ─────────────────────────
@@ -715,43 +693,96 @@ class NewsCollector(BaseCollector):
         collected_at = pendulum.now("UTC").to_iso8601_string()
         new_articles: list[dict[str, Any]] = []
 
+        cutoff_date = pendulum.now("UTC").subtract(days=MAX_ARTICLE_AGE_DAYS)
+        skipped_old = 0
+        skipped_noise = 0
+        skipped_duplicate = 0
+
         for article in raw_articles:
             url = article.get("link")
             if not url or url in existing_urls:
+                skipped_duplicate += 1
                 continue
+
+            title = article.get("title") or "Untitled"
+
+            # Skip articles older than the cutoff date
+            published = _parse_published_date(article.get("published"))
+            if published:
+                try:
+                    pub_date = pendulum.parse(published)
+                    if pub_date < cutoff_date:
+                        skipped_old += 1
+                        continue
+                except Exception:
+                    # If we can't parse the date, keep the article — don't discard it
+                    logger.debug("Could not parse date for article: %s", url)
 
             new_articles.append(
                 {
                     "id": url,
-                    "title": article.get("title") or "Untitled",
+                    "title": title,
                     "url": url,
                     "summary": article.get("summary") or "",
                     "source": feed_name,
                     "source_category": category,
-                    "published_date": _parse_published_date(article.get("published")),
+                    "published_date": published,
                     "collected_at": collected_at,
                     "content_type": content_type,
                     "status": "raw",
                 }
             )
 
-        duplicates = len(raw_articles) - len(new_articles)
-
         if not new_articles:
-            logger.info("All %d articles from '%s' already exist", len(raw_articles), feed_name)
-            return {"feed": feed_name, "stored": 0, "failed": 0, "duplicates": duplicates}
+            logger.info(
+                "No new articles from '%s' (dupes: %d, old: %d, noise: %d)",
+                feed_name,
+                skipped_duplicate,
+                skipped_old,
+                skipped_noise,
+            )
+            return {
+                "feed": feed_name,
+                "stored": 0,
+                "failed": 0,
+                "duplicates": skipped_duplicate,
+                "old": skipped_old,
+                "noise": skipped_noise,
+            }
 
         # ── Step 5: Store new articles in Neo4j ───────────────────────
         stored = self._store_articles_batch(new_articles)
 
+        # -1 means the Neo4j write failed (not just "nothing to store")
+        if stored == -1:
+            logger.error("Batch write to Neo4j failed for feed '%s'", feed_name)
+            return {
+                "feed": feed_name,
+                "stored": 0,
+                "failed": len(new_articles),
+                "duplicates": skipped_duplicate,
+                "old": skipped_old,
+                "noise": skipped_noise,
+                "error": "store_failed",
+            }
+
         logger.info(
-            "Feed '%s': %d new, %d duplicates skipped",
+            "Feed '%s': %d new, %d dupes, %d old, %d noise",
             feed_name,
             stored,
-            duplicates,
+            skipped_duplicate,
+            skipped_old,
+            skipped_noise,
         )
 
-        return {"feed": feed_name, "stored": stored, "failed": 0, "duplicates": duplicates}
+        return {
+            "feed": feed_name,
+            "stored": stored,
+            "failed": 0,
+            "duplicates": skipped_duplicate,
+            "old": skipped_old,
+            "noise": skipped_noise,
+        }
 
     def _fetch_feed(self, url: str, feed_name: str) -> str | None:
         """Fetch RSS feed XML from a URL using httpx.
@@ -842,6 +873,7 @@ class NewsCollector(BaseCollector):
             # This means we might create some duplicates, but that's
             # better than skipping all articles or crashing.
             logger.exception("Failed to check for existing articles in Neo4j")
+            logger.warning("Dedup check failed — some duplicates may be stored this run")
             return set()
 
     def _store_articles_batch(self, articles: list[dict[str, Any]]) -> int:
@@ -877,7 +909,9 @@ class NewsCollector(BaseCollector):
             return total
         except Exception:
             logger.exception("Failed to store articles batch in Neo4j")
-            return 0
+            # Return -1 (not 0) so the caller can distinguish "nothing to
+            # store" from "Neo4j write failed".
+            return -1
 
 
 # ── Convenience function ──────────────────────────────────────────────

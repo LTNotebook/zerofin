@@ -283,6 +283,16 @@ class EconomicCollector(BaseCollector):
         # Extract the 'years' keyword arg, defaulting to 1
         years: int = kwargs.get("years", 1)
 
+        # Validate that years is a positive integer.
+        # A value of 0 or negative makes no sense as a look-back window,
+        # and a non-integer would break pendulum's subtract(years=...) call.
+        if not isinstance(years, int) or years < 1:
+            logger.warning(
+                "Invalid value for 'years': %r — must be a positive integer. Defaulting to 1.",
+                years,
+            )
+            years = 1
+
         # Check for API key before doing anything
         fred = self._get_fred_client()
         if fred is None:

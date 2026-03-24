@@ -44,13 +44,23 @@ class Settings(BaseSettings):
         "extra": "ignore",  # Don't crash if .env has extra variables
     }
 
-    @property
-    def postgres_url(self) -> str:
-        """Build the full Postgres connection string from individual settings."""
-        return (
-            f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+    def postgres_connection_params(self) -> dict[str, str | int]:
+        """Return Postgres connection parameters as separate keys.
+
+        Using individual parameters instead of a URL string means the password
+        is never concatenated into a readable value that could appear in logs,
+        error messages, or debug output.
+
+        psycopg.connect() accepts these keyword arguments directly:
+            psycopg.connect(**settings.postgres_connection_params())
+        """
+        return {
+            "host": self.POSTGRES_HOST,
+            "port": self.POSTGRES_PORT,
+            "dbname": self.POSTGRES_DB,
+            "user": self.POSTGRES_USER,
+            "password": self.POSTGRES_PASSWORD,
+        }
 
 
 # Create one global instance — import this everywhere

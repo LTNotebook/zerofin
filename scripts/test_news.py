@@ -33,17 +33,21 @@ def main() -> None:
     logger.info("NEWS COLLECTION RESULTS")
     logger.info("=" * 60)
     logger.info("  Total stored: %d", result.get("stored", 0))
-    logger.info("  Duplicates skipped: %d", result.get("duplicates", 0))
+    logger.info("  Skipped (duplicates): %d", result.get("duplicates", 0))
+    logger.info("  Skipped (too old): %d", result.get("old", 0))
+    logger.info("  Skipped (noise): %d", result.get("noise", 0))
     logger.info("  Failed: %d", result.get("failed", 0))
     logger.info("")
     logger.info("Per feed breakdown:")
 
     for fr in result.get("feed_results", []):
         logger.info(
-            "  %-40s  stored: %3d  dupes: %3d  failed: %d",
+            "  %-40s  stored: %3d  dupes: %3d  old: %3d  noise: %3d  failed: %d",
             fr["feed"],
             fr["stored"],
-            fr["duplicates"],
+            fr.get("duplicates", 0),
+            fr.get("old", 0),
+            fr.get("noise", 0),
             fr["failed"],
         )
 

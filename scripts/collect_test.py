@@ -61,7 +61,7 @@ def test_economic() -> None:
         result = collector.collect_latest()
 
         logger.info("  Results:")
-        logger.info("    Collected: %d data points", result.get("collected", 0))
+        logger.info("    Stored: %d data points", result.get("stored", 0))
         logger.info("    Failed: %d indicators", result.get("failed", 0))
         logger.info("  Economic collection PASSED")
 
@@ -87,7 +87,7 @@ def test_news() -> None:
         logger.info("  Results:")
         logger.info("    Stored: %d articles", result.get("stored", 0))
         logger.info("    Failed: %d feeds", result.get("failed", 0))
-        logger.info("    Duplicates skipped: %d", result.get("duplicates_skipped", 0))
+        logger.info("    Duplicates skipped: %d", result.get("duplicates", 0))
         logger.info("  News collection PASSED")
 
     except Exception as error:
@@ -102,14 +102,11 @@ def show_database_summary() -> None:
 
     try:
         with PostgresStorage() as db:
-            total_rows = db.execute_query(
-                "SELECT COUNT(*) AS total FROM market_data"
-            )
+            total_rows = db.execute_query("SELECT COUNT(*) AS total FROM market_data")
             total = total_rows[0]["total"] if total_rows else 0
 
             type_rows = db.execute_query(
-                "SELECT entity_type, COUNT(*) AS count "
-                "FROM market_data GROUP BY entity_type"
+                "SELECT entity_type, COUNT(*) AS count FROM market_data GROUP BY entity_type"
             )
 
             logger.info("  PostgreSQL market_data: %d rows", total)
@@ -121,9 +118,7 @@ def show_database_summary() -> None:
 
     try:
         with GraphStorage() as graph:
-            article_count = graph.run_query(
-                "MATCH (a:Article) RETURN count(a) AS total"
-            )
+            article_count = graph.run_query("MATCH (a:Article) RETURN count(a) AS total")
             total_articles = article_count[0]["total"] if article_count else 0
             logger.info("  Neo4j articles: %d", total_articles)
 

@@ -307,7 +307,7 @@ FRED_LEADING: list[str] = [
     "STLFSI2",  # St. Louis Fed Financial Stress Index
     "NFCI",  # Chicago Fed National Financial Conditions Index
     "ANFCI",  # Adjusted NFCI (purer financial signal)
-    "SAHM",  # Sahm Rule Recession Indicator
+    "SAHMCURRENT",  # Sahm Rule Recession Indicator
 ]
 
 # Yield curve spreads — recession predictors
@@ -764,7 +764,7 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "frequency": "weekly",
         "category": "leading",
     },
-    "SAHM": {
+    "SAHMCURRENT": {
         "name": "Sahm Rule Recession Indicator",
         "unit": "percentage_points",
         "metric": "value",

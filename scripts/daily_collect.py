@@ -22,7 +22,9 @@ from typing import Any
 import pendulum
 
 from zerofin.data.economic import EconomicCollector
+from zerofin.data.news import NewsCollector
 from zerofin.data.prices import PriceCollector
+from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
 
 logging.basicConfig(
@@ -74,13 +76,23 @@ def run_pipeline() -> dict[str, Any]:
         logger.error("Economic collection crashed: %s", error)
         results["collectors"]["economic"] = {"error": str(error)}
 
-    # --- News (placeholder for when we build news.py) ---
-    # try:
-    #     news_collector = NewsCollector()
-    #     news_result = news_collector.collect_latest()
-    #     results["collectors"]["news"] = news_result
-    # except Exception as error:
-    #     logger.error("News collection crashed: %s", error)
+    # --- News ---
+    # NewsCollector needs an open Neo4j connection to store articles,
+    # so we wrap it in a GraphStorage context manager.
+    try:
+        with GraphStorage() as graph:
+            news_collector = NewsCollector(graph=graph)
+            news_result = news_collector.collect_latest()
+        results["collectors"]["news"] = news_result
+        logger.info(
+            "News: %d stored, %d duplicates, %d failed",
+            news_result.get("stored", 0),
+            news_result.get("duplicates", 0),
+            news_result.get("failed", 0),
+        )
+    except Exception as error:
+        logger.error("News collection crashed: %s", error)
+        results["collectors"]["news"] = {"error": str(error)}
 
     # --- Summary ---
     end_time = pendulum.now("UTC")
@@ -114,11 +126,7 @@ def main() -> None:
     results = run_pipeline()
 
     # Exit with error code if any collector crashed
-    has_errors = any(
-        "error" in r
-        for r in results["collectors"].values()
-        if isinstance(r, dict)
-    )
+    has_errors = any("error" in r for r in results["collectors"].values() if isinstance(r, dict))
     if has_errors:
         logger.warning("Pipeline finished with errors — check logs above")
         sys.exit(1)

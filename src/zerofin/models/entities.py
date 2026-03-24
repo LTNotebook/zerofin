@@ -9,6 +9,10 @@ model rejects it with a clear error message.
 Two models for Phase 1:
 - DataPointCreate: validates numbers going into PostgreSQL (prices, indicators)
 - EntityCreate: validates entities going into Neo4j (companies, sectors, etc.)
+
+Entity type labels live in zerofin.storage.graph (ENTITY_LABELS) — that is the
+single source of truth. This module imports from there rather than duplicating
+the list.
 """
 
 from __future__ import annotations
@@ -18,22 +22,9 @@ from decimal import Decimal
 import pendulum
 from pydantic import BaseModel, Field, field_validator
 
-# The 12 entity types from the FinDKG ontology — same list as in graph.py.
-# If you add a type here, add it in graph.py too.
-VALID_ENTITY_TYPES = [
-    "Asset",
-    "Indicator",
-    "Sector",
-    "Event",
-    "Company",
-    "Index",
-    "Commodity",
-    "Currency",
-    "Country",
-    "CentralBank",
-    "GovernmentBody",
-    "Person",
-]
+# Import the single authoritative list of entity labels from the graph module.
+# graph.py owns this list — don't maintain a second copy here.
+from zerofin.storage.graph import ENTITY_LABELS
 
 # What kind of thing is the data point about?
 # "asset" = stocks, ETFs, commodities with prices
@@ -209,8 +200,8 @@ class EntityCreate(BaseModel):
     @classmethod
     def label_must_be_valid(cls, value: str) -> str:
         """Make sure the label is one of our 12 entity types."""
-        if value not in VALID_ENTITY_TYPES:
-            raise ValueError(f"label must be one of {VALID_ENTITY_TYPES}, got '{value}'")
+        if value not in ENTITY_LABELS:
+            raise ValueError(f"label must be one of {ENTITY_LABELS}, got '{value}'")
         return value
 
     @field_validator("id")

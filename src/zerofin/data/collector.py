@@ -25,9 +25,31 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class CollectorResult(TypedDict, total=False):
+    """The standard return shape every collector must produce.
+
+    Using TypedDict gives us type-checked keys while still being a plain
+    dict at runtime — no extra dependencies, no overhead.
+
+    `total=False` means all keys are optional at the type level, which
+    lets subclasses add extra keys (like `details` or `skipped_null`)
+    without breaking the type checker. The three core keys below are
+    always present in practice because _build_summary() always sets them.
+
+    Keys:
+        collector: The name of the collector (e.g. "prices", "economic").
+        stored:    Number of data points successfully saved to the database.
+        failed:    Number of data points that failed validation or storage.
+    """
+
+    collector: str
+    stored: int
+    failed: int
 
 
 class BaseCollector(ABC):
@@ -47,7 +69,7 @@ class BaseCollector(ABC):
     collector_name: str = "base"
 
     @abstractmethod
-    def collect_latest(self) -> dict[str, Any]:
+    def collect_latest(self) -> CollectorResult:
         """Pull the most recent data and store it.
 
         Every collector MUST implement this method. It should:
@@ -57,14 +79,14 @@ class BaseCollector(ABC):
         4. Return a summary dict
 
         Returns:
-            A dict with at least these keys:
+            A CollectorResult with at least these keys:
             - "stored": number of data points successfully saved
             - "failed": number of data points that failed validation or storage
             - "collector": name of this collector
         """
 
     @abstractmethod
-    def collect_history(self, **kwargs: Any) -> dict[str, Any]:
+    def collect_history(self, **kwargs: Any) -> CollectorResult:
         """Pull historical data and store it (for backfilling).
 
         Every collector MUST implement this method. Used when you first
@@ -85,7 +107,7 @@ class BaseCollector(ABC):
         stored: int,
         failed: int,
         **extra: Any,
-    ) -> dict[str, Any]:
+    ) -> CollectorResult:
         """Build a standard summary dict that all collectors return.
 
         This ensures every collector's result looks the same, so the

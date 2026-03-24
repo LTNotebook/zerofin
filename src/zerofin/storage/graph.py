@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+from types import TracebackType
 from typing import Any
 
 import neo4j
@@ -115,7 +116,7 @@ class GraphStorage:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: Any,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Always close the connection when leaving a `with` block."""
         self.close()
