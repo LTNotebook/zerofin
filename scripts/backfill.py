@@ -12,17 +12,29 @@ Run with:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from zerofin.data.economic import EconomicCollector
 from zerofin.data.prices import PriceCollector
 from zerofin.storage.postgres import PostgresStorage
 
+# Log everything to console
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Also log warnings to a file so we can check failures after
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+file_handler = logging.FileHandler(LOG_DIR / "backfill_warnings.log", mode="w")
+file_handler.setLevel(logging.WARNING)
+file_handler.setFormatter(
+    logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
+)
+logging.getLogger().addHandler(file_handler)
 
 
 def backfill_prices(period: str = "1y") -> dict[str, Any]:
@@ -54,7 +66,7 @@ def main() -> None:
         db.setup_tables()
 
     # Load price history
-    price_result = backfill_prices(period="3y")
+    price_result = backfill_prices(period="5y")
     logger.info(
         "Prices: %d stored, %d failed",
         price_result.get("stored", 0),
@@ -62,7 +74,7 @@ def main() -> None:
     )
 
     # Load economic history
-    econ_result = backfill_economic(years=3)
+    econ_result = backfill_economic(years=5)
     logger.info(
         "Economic: %d stored, %d failed",
         econ_result.get("stored", 0),

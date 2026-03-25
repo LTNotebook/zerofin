@@ -19,6 +19,8 @@ from zerofin.analysis.filters import (
     _magnitude_stable,
     _sign_consistent,
     _tercile_consistent,
+    classify_entity,
+    is_pair_plausible,
 )
 
 # =====================================================================
@@ -208,3 +210,107 @@ class TestMagnitudeStability:
         x = np.concatenate([x1, x2])
         y = np.concatenate([y1, y2])
         assert not _magnitude_stable(x, y)
+
+
+# =====================================================================
+# Entity Classification
+# =====================================================================
+
+
+class TestClassifyEntity:
+    """Tests for entity type classification."""
+
+    def test_stock_classified_as_equity(self) -> None:
+        """Individual stocks should be classified as equity."""
+        assert classify_entity("asset:NVDA") == "equity"
+        assert classify_entity("asset:AAPL") == "equity"
+
+    def test_fred_housing_classified(self) -> None:
+        """Housing FRED indicators get their own category."""
+        assert classify_entity("indicator:HOUST") == "fred_housing"
+        assert classify_entity("indicator:PERMIT") == "fred_housing"
+        assert classify_entity("indicator:MORTGAGE30US") == "fred_housing"
+
+    def test_fred_labor_classified(self) -> None:
+        """Labor FRED indicators get their own category."""
+        assert classify_entity("indicator:UNRATE") == "fred_labor"
+        assert classify_entity("indicator:PAYEMS") == "fred_labor"
+
+    def test_commodity_classified(self) -> None:
+        """Commodities get sub-typed."""
+        assert classify_entity("asset:ZC=F") == "commodity_ag"
+        assert classify_entity("asset:GC=F") == "commodity_metal"
+        assert classify_entity("asset:CL=F") == "commodity_energy"
+
+    def test_crypto_classified(self) -> None:
+        """Crypto gets its own category."""
+        assert classify_entity("asset:BTC-USD") == "crypto"
+
+    def test_intl_etf_classified(self) -> None:
+        """International ETFs get their own category."""
+        assert classify_entity("asset:EWZ") == "intl_etf"
+        assert classify_entity("asset:IEMG") == "intl_etf"
+
+    def test_bond_etf_classified(self) -> None:
+        """Bond ETFs get their own category."""
+        assert classify_entity("asset:TLT") == "bond_etf"
+        assert classify_entity("asset:HYG") == "bond_etf"
+
+    def test_vix_classified(self) -> None:
+        """VIX gets its own category."""
+        assert classify_entity("asset:^VIX") == "volatility"
+
+
+# =====================================================================
+# Gate 2: Plausibility Filter
+# =====================================================================
+
+
+class TestPlausibilityFilter:
+    """Tests for entity type pairing plausibility check."""
+
+    def test_equity_equity_allowed(self) -> None:
+        """Two stocks should be allowed to correlate."""
+        assert is_pair_plausible("asset:NVDA", "asset:AMD")
+
+    def test_housing_bond_allowed(self) -> None:
+        """Housing indicators and bond ETFs make sense together."""
+        assert is_pair_plausible("indicator:MORTGAGE30US", "asset:TLT")
+
+    def test_housing_intl_blocked(self) -> None:
+        """Housing indicators shouldn't correlate with international ETFs."""
+        assert not is_pair_plausible("indicator:HOUST", "asset:EWZ")
+        assert not is_pair_plausible("indicator:PERMIT", "asset:IEMG")
+
+    def test_housing_ag_commodity_blocked(self) -> None:
+        """Housing and soybeans have no connection."""
+        assert not is_pair_plausible("indicator:PERMIT", "asset:ZS=F")
+
+    def test_labor_commodity_blocked(self) -> None:
+        """Labor indicators and commodities have no connection."""
+        assert not is_pair_plausible("indicator:UNRATE", "asset:ZC=F")
+        assert not is_pair_plausible("indicator:PAYEMS", "asset:GC=F")
+
+    def test_labor_intl_blocked(self) -> None:
+        """US labor data and international ETFs have no connection."""
+        assert not is_pair_plausible("indicator:JTSJOL", "asset:EWZ")
+
+    def test_labor_crypto_blocked(self) -> None:
+        """Labor data and crypto have no connection."""
+        assert not is_pair_plausible("indicator:CCSA", "asset:BTC-USD")
+
+    def test_credit_equity_allowed(self) -> None:
+        """Credit conditions and equities make sense together."""
+        assert is_pair_plausible("indicator:NFCI", "asset:NVDA")
+
+    def test_consumer_equity_allowed(self) -> None:
+        """Consumer indicators and stocks make sense."""
+        assert is_pair_plausible("indicator:UMCSENT", "asset:WMT")
+
+    def test_rates_bond_allowed(self) -> None:
+        """Interest rates and bond ETFs are directly related."""
+        assert is_pair_plausible("indicator:DGS10", "asset:TLT")
+
+    def test_commodity_commodity_allowed(self) -> None:
+        """Commodities can correlate with each other."""
+        assert is_pair_plausible("asset:GC=F", "asset:SI=F")

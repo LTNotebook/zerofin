@@ -338,9 +338,10 @@ class EconomicCollector(BaseCollector):
                         details.append({"series_id": series_id, "status": "empty_series"})
                         continue
 
-                    # Process every observation in the series
+                    # Process every observation — validate first, batch store after
                     series_collected = 0
                     series_null = 0
+                    batch = []
 
                     for timestamp, raw_value in series.items():
                         # Skip null/NaN values — FRED sometimes has gaps
@@ -363,16 +364,17 @@ class EconomicCollector(BaseCollector):
                                 source="fred",
                             )
 
-                            db.insert_data_point(
-                                entity_type=data_point.entity_type,
-                                entity_id=data_point.entity_id,
-                                metric=data_point.metric,
-                                value=data_point.value,
-                                unit=data_point.unit,
-                                timestamp=data_point.timestamp,
-                                source=data_point.source,
-                            )
-                            series_collected += 1
+                            batch.append({
+                                "entity_type": data_point.entity_type,
+                                "entity_id": data_point.entity_id,
+                                "metric": data_point.metric,
+                                "value": data_point.value,
+                                "unit": data_point.unit,
+                                "timestamp": data_point.timestamp,
+                                "source": data_point.source,
+                                "is_revised": False,
+                                "revision_of": None,
+                            })
 
                         except ValidationError as exc:
                             logger.warning(
@@ -382,14 +384,18 @@ class EconomicCollector(BaseCollector):
                                 exc,
                             )
                             failed_count += 1
-                        except Exception as exc:
-                            logger.warning(
-                                "DB insert failed for %s at %s: %s",
-                                series_id,
-                                observation_date,
-                                exc,
-                            )
-                            failed_count += 1
+
+                    # Batch store all valid points for this series
+                    try:
+                        series_collected = db.insert_data_points_batch(batch)
+                    except Exception as exc:
+                        logger.warning(
+                            "Batch store failed for %s: %s",
+                            series_id,
+                            exc,
+                        )
+                        series_collected = 0
+                        failed_count += 1
 
                     collected_count += series_collected
                     skipped_null_count += series_null

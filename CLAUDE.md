@@ -120,6 +120,7 @@ zerofin/
 - ALWAYS use uv commands, never raw pip
 - ALWAYS verify data quality after changes (run engine, check Neo4j, audit results)
 - ALWAYS suggest research when uncertain about domain-specific decisions
+- ALWAYS clear the market_data table before re-running backfills (backfill creates duplicates, not upserts)
 
 ## Working Style
 - Explain things in plain English, not jargon

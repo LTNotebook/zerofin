@@ -64,7 +64,7 @@ def run_monthly_correlation_pipeline(
     """
     start_time = time.monotonic()
     window_end = pendulum.now("UTC")
-    window_start = window_end.subtract(years=3)
+    window_start = window_end.subtract(years=5)
 
     logger.info(
         "Starting monthly FRED pipeline (%s to %s)",

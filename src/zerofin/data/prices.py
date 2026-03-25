@@ -409,33 +409,34 @@ class PriceCollector(BaseCollector):
                         )
 
                     # --------------------------------------------------
-                    # Store all valid data points in PostgreSQL
+                    # Store all valid data points in PostgreSQL (batch)
                     # --------------------------------------------------
-                    stored_count = 0
                     store_failed = 0
+                    batch = [
+                        {
+                            "entity_type": point.entity_type,
+                            "entity_id": point.entity_id,
+                            "metric": point.metric,
+                            "value": point.value,
+                            "unit": point.unit,
+                            "timestamp": point.timestamp,
+                            "source": point.source,
+                            "is_revised": point.is_revised,
+                            "revision_of": point.revision_of,
+                        }
+                        for point in valid_points
+                    ]
 
-                    for point in valid_points:
-                        try:
-                            db.insert_data_point(
-                                entity_type=point.entity_type,
-                                entity_id=point.entity_id,
-                                metric=point.metric,
-                                value=point.value,
-                                unit=point.unit,
-                                timestamp=point.timestamp,
-                                source=point.source,
-                                is_revised=point.is_revised,
-                                revision_of=point.revision_of,
-                            )
-                            stored_count += 1
-                        except Exception as store_error:
-                            logger.error(
-                                "Failed to store data point for %s/%s: %s",
-                                ticker,
-                                point.metric,
-                                store_error,
-                            )
-                            store_failed += 1
+                    try:
+                        stored_count = db.insert_data_points_batch(batch)
+                    except Exception as store_error:
+                        logger.error(
+                            "Batch store failed for %s: %s",
+                            ticker,
+                            store_error,
+                        )
+                        stored_count = 0
+                        store_failed = len(batch)
 
                     total_stored += stored_count
                     total_failed += row_failed + store_failed

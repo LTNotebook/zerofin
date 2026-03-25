@@ -305,6 +305,51 @@ class PostgresStorage:
         logger.debug("Inserted data point with id=%d", inserted_id)
         return inserted_id
 
+    def insert_data_points_batch(
+        self,
+        data_points: list[dict],
+    ) -> int:
+        """Store many data points in a single database commit.
+
+        Much faster than calling insert_data_point() in a loop —
+        sends all rows in one executemany() call with one commit
+        instead of hundreds of thousands of individual commits.
+
+        Each dict in data_points should have:
+            entity_type, entity_id, metric, value, unit,
+            timestamp, source, is_revised, revision_of
+
+        Returns:
+            Number of rows inserted.
+        """
+        if not data_points:
+            return 0
+
+        query = """
+            INSERT INTO market_data (
+                entity_type, entity_id, metric, value, unit,
+                timestamp, source, is_revised, revision_of
+            )
+            VALUES (
+                %(entity_type)s, %(entity_id)s, %(metric)s,
+                %(value)s, %(unit)s, %(timestamp)s,
+                %(source)s, %(is_revised)s, %(revision_of)s
+            )
+        """
+
+        # Execute all inserts, then commit once at the end.
+        # This is much faster than commit-per-row because the
+        # database only writes to disk once instead of N times.
+        with self._conn.cursor() as cursor:
+            for params in data_points:
+                cursor.execute(query, params)
+
+        self._conn.commit()
+
+        count = len(data_points)
+        logger.info("Batch inserted %d data points", count)
+        return count
+
     # ------------------------------------------------------------------
     # Read operations
     # ------------------------------------------------------------------
