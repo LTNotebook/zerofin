@@ -234,19 +234,52 @@ def _bootstrap_ci_excludes_zero(
 
     If the 95% confidence interval includes zero, the correlation
     might not be real — it could just be noise.
+
+    Uses vectorized numpy instead of a Python loop: all 1,000
+    bootstrap index sets are generated at once, ranks are computed
+    in bulk, and correlations are calculated via matrix operations.
     """
     n = len(a)
-    boot_corrs = []
+    if n < 6:
+        return False
+
     rng = np.random.default_rng(42)
 
-    for _ in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        r, _ = stats.spearmanr(a[idx], b[idx])
-        if not math.isnan(r):
-            boot_corrs.append(r)
+    # Generate all bootstrap indices at once: shape (n_boot, n)
+    # Each row is one bootstrap sample's indices
+    all_idx = rng.integers(0, n, size=(n_boot, n))
 
-    if len(boot_corrs) < 100:
+    # Resample both arrays for all bootstraps at once: shape (n_boot, n)
+    a_samples = a[all_idx]
+    b_samples = b[all_idx]
+
+    # Convert to ranks for Spearman (rankdata along each row)
+    # scipy.stats.rankdata doesn't vectorize across rows,
+    # so we use argsort trick: rank = argsort(argsort(x)) + 1
+    a_ranks = a_samples.argsort(axis=1).argsort(axis=1).astype(float)
+    b_ranks = b_samples.argsort(axis=1).argsort(axis=1).astype(float)
+
+    # Pearson correlation on ranks = Spearman correlation
+    # r = (n * sum(xy) - sum(x)*sum(y)) / sqrt((n*sum(x²)-sum(x)²) * (n*sum(y²)-sum(y)²))
+    a_mean = a_ranks.mean(axis=1, keepdims=True)
+    b_mean = b_ranks.mean(axis=1, keepdims=True)
+    a_centered = a_ranks - a_mean
+    b_centered = b_ranks - b_mean
+
+    # Numerator: sum of products of centered values (per bootstrap)
+    numerator = (a_centered * b_centered).sum(axis=1)
+
+    # Denominator: product of norms
+    a_norm = np.sqrt((a_centered ** 2).sum(axis=1))
+    b_norm = np.sqrt((b_centered ** 2).sum(axis=1))
+    denominator = a_norm * b_norm
+
+    # Avoid division by zero (constant ranks in a bootstrap sample)
+    valid = denominator > 0
+    if valid.sum() < 100:
         return False
+
+    boot_corrs = numerator[valid] / denominator[valid]
 
     lower = np.percentile(boot_corrs, 2.5)
     upper = np.percentile(boot_corrs, 97.5)

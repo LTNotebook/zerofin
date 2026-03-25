@@ -90,6 +90,36 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Broadest measure of total US stock market",
         "metadata": {"category": "us_index"},
     },
+    {
+        "id": "^VVIX",
+        "label": "Index",
+        "name": "CBOE VIX of VIX",
+        "description": (
+            "Volatility of volatility — leads VIX, measures uncertainty"
+        ),
+        "metadata": {"category": "us_index", "subtype": "volatility"},
+    },
+    {
+        "id": "^MOVE",
+        "label": "Index",
+        "name": "ICE BofAML MOVE Index",
+        "description": "Bond market volatility — VIX for Treasuries, fixed income stress signal",
+        "metadata": {"category": "us_index", "subtype": "volatility"},
+    },
+    {
+        "id": "^GVZ",
+        "label": "Index",
+        "name": "CBOE Gold Volatility Index",
+        "description": "Gold options implied volatility — macro panic signal",
+        "metadata": {"category": "us_index", "subtype": "volatility"},
+    },
+    {
+        "id": "^OVX",
+        "label": "Index",
+        "name": "CBOE Crude Oil Volatility Index",
+        "description": "Oil implied volatility — energy sector stress signal",
+        "metadata": {"category": "us_index", "subtype": "volatility"},
+    },
     # ── Sector ETFs (11 GICS) ──────────────────────────────────────────
     {
         "id": "XLK",
@@ -246,6 +276,47 @@ ENTITY_SEED_DATA: list[dict] = [
         "name": "Invesco S&P 500 Equal Weight ETF",
         "description": "Equal-weighted S&P; rotation and breadth indicator",
         "metadata": {"subtype": "etf", "asset_type": "thematic_etf", "theme": "equal_weight"},
+    },
+    # ── Factor ETFs ───────────────────────────────────────────────────
+    {
+        "id": "MTUM",
+        "label": "Asset",
+        "name": "iShares MSCI USA Momentum Factor ETF",
+        "description": (
+            "Momentum factor — tracks 6/12-month momentum, regime signal"
+        ),
+        "metadata": {"subtype": "etf", "asset_type": "factor_etf", "factor": "momentum"},
+    },
+    {
+        "id": "QUAL",
+        "label": "Asset",
+        "name": "iShares MSCI USA Quality Factor ETF",
+        "description": "Quality factor — high ROE, low debt; late-cycle signal",
+        "metadata": {"subtype": "etf", "asset_type": "factor_etf", "factor": "quality"},
+    },
+    {
+        "id": "USMV",
+        "label": "Asset",
+        "name": "iShares MSCI USA Min Vol Factor ETF",
+        "description": "Min volatility factor — risk-off equity positioning signal",
+        "metadata": {"subtype": "etf", "asset_type": "factor_etf", "factor": "min_vol"},
+    },
+    # ── Alternative / Thematic Proxy ETFs ─────────────────────────────
+    {
+        "id": "JETS",
+        "label": "Asset",
+        "name": "U.S. Global Jets ETF",
+        "description": "Airline demand — consumer spending and travel activity proxy",
+        "metadata": {"subtype": "etf", "asset_type": "thematic_etf", "theme": "airlines"},
+    },
+    {
+        "id": "BDRY",
+        "label": "Asset",
+        "name": "Breakwave Dry Bulk Shipping ETF",
+        "description": (
+            "Dry bulk freight futures — global trade volume proxy"
+        ),
+        "metadata": {"subtype": "etf", "asset_type": "thematic_etf", "theme": "shipping"},
     },
     # ── Key Stocks — Mega-Cap Tech ─────────────────────────────────────
     {
@@ -426,6 +497,34 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Oilfield services leader; capex cycle indicator",
         "metadata": {"sector": "Energy"},
     },
+    {
+        "id": "OXY",
+        "label": "Company",
+        "name": "Occidental Petroleum",
+        "description": "E&P + carbon capture; major Berkshire Hathaway holding",
+        "metadata": {"sector": "Energy"},
+    },
+    {
+        "id": "MPC",
+        "label": "Company",
+        "name": "Marathon Petroleum",
+        "description": "Refining margins signal; distinct from upstream E&P",
+        "metadata": {"sector": "Energy"},
+    },
+    {
+        "id": "PSX",
+        "label": "Company",
+        "name": "Phillips 66",
+        "description": "Midstream + refining; different signal from upstream producers",
+        "metadata": {"sector": "Energy"},
+    },
+    {
+        "id": "KMI",
+        "label": "Company",
+        "name": "Kinder Morgan",
+        "description": "Natural gas pipeline infrastructure; midstream signal",
+        "metadata": {"sector": "Energy"},
+    },
     # ── Key Stocks — Defense & Aerospace ───────────────────────────────
     {
         "id": "LMT",
@@ -491,6 +590,55 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Immunology (Humira successor), oncology",
         "metadata": {"sector": "Healthcare"},
     },
+    {
+        "id": "MRNA",
+        "label": "Company",
+        "name": "Moderna Inc.",
+        "description": "mRNA platform; vaccines, therapeutics pipeline",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "AMGN",
+        "label": "Company",
+        "name": "Amgen Inc.",
+        "description": "Large-cap biotech; Dow 30 component, obesity pipeline",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "MRK",
+        "label": "Company",
+        "name": "Merck & Co.",
+        "description": "Oncology leader (Keytruda); top-selling drug globally",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "GILD",
+        "label": "Company",
+        "name": "Gilead Sciences",
+        "description": "Antivirals / HIV franchise; virology signal",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "REGN",
+        "label": "Company",
+        "name": "Regeneron Pharmaceuticals",
+        "description": "Immunology (Dupixent) + ophthalmology (Eylea)",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "VRTX",
+        "label": "Company",
+        "name": "Vertex Pharmaceuticals",
+        "description": "Cystic fibrosis monopoly + gene editing pipeline",
+        "metadata": {"sector": "Healthcare"},
+    },
+    {
+        "id": "BIIB",
+        "label": "Company",
+        "name": "Biogen Inc.",
+        "description": "Neurology / Alzheimer's; high idiosyncratic risk",
+        "metadata": {"sector": "Healthcare"},
+    },
     # ── Key Stocks — Retail & Consumer ─────────────────────────────────
     {
         "id": "WMT",
@@ -519,6 +667,27 @@ ENTITY_SEED_DATA: list[dict] = [
         "name": "Nike Inc.",
         "description": "Global consumer brand; international demand proxy",
         "metadata": {"sector": "Consumer Discretionary"},
+    },
+    {
+        "id": "MCD",
+        "label": "Company",
+        "name": "McDonald's Corporation",
+        "description": "Consumer discretionary/defensive hybrid; Dow 30, fast food bellwether",
+        "metadata": {"sector": "Consumer Discretionary"},
+    },
+    {
+        "id": "PG",
+        "label": "Company",
+        "name": "Procter & Gamble",
+        "description": "Defensive consumer staples bellwether; Dow 30",
+        "metadata": {"sector": "Consumer Staples"},
+    },
+    {
+        "id": "KO",
+        "label": "Company",
+        "name": "Coca-Cola Company",
+        "description": "Classic defensive; Buffett holding, consumer staples anchor",
+        "metadata": {"sector": "Consumer Staples"},
     },
     # ── Key Stocks — Industrials ───────────────────────────────────────
     {
@@ -687,6 +856,100 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Crypto exchange; bridges crypto to traditional equities",
         "metadata": {"sector": "Financials"},
     },
+    # ── REITs ─────────────────────────────────────────────────────────
+    {
+        "id": "PLD",
+        "label": "Company",
+        "name": "Prologis Inc.",
+        "description": "Industrial/logistics REIT; e-commerce and warehouse demand proxy",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "AMT",
+        "label": "Company",
+        "name": "American Tower Corporation",
+        "description": "Cell tower REIT; interest rate sensitive + wireless infrastructure",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "EQIX",
+        "label": "Company",
+        "name": "Equinix Inc.",
+        "description": "Data center REIT; AI infrastructure demand signal",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "DLR",
+        "label": "Company",
+        "name": "Digital Realty Trust",
+        "description": "Data center REIT; AI buildout signal",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "WELL",
+        "label": "Company",
+        "name": "Welltower Inc.",
+        "description": "Healthcare REIT; aging demographics play",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "SPG",
+        "label": "Company",
+        "name": "Simon Property Group",
+        "description": "Retail/mall REIT; consumer spending signal",
+        "metadata": {"sector": "Real Estate"},
+    },
+    {
+        "id": "O",
+        "label": "Company",
+        "name": "Realty Income Corporation",
+        "description": "Net lease REIT; bond-like defensive income signal",
+        "metadata": {"sector": "Real Estate"},
+    },
+    # ── Utilities ─────────────────────────────────────────────────────
+    {
+        "id": "NEE",
+        "label": "Company",
+        "name": "NextEra Energy",
+        "description": "Largest utility; renewables + AI datacenter power contracts",
+        "metadata": {"sector": "Utilities"},
+    },
+    {
+        "id": "VST",
+        "label": "Company",
+        "name": "Vistra Corp.",
+        "description": "Deregulated power generator; direct AI energy demand play",
+        "metadata": {"sector": "Utilities"},
+    },
+    {
+        "id": "SO",
+        "label": "Company",
+        "name": "Southern Company",
+        "description": "Traditional regulated utility; pure rate-sensitivity signal",
+        "metadata": {"sector": "Utilities"},
+    },
+    {
+        "id": "DUK",
+        "label": "Company",
+        "name": "Duke Energy",
+        "description": "Traditional utility with AI power transition angle",
+        "metadata": {"sector": "Utilities"},
+    },
+    # ── China Individual Stocks ───────────────────────────────────────
+    {
+        "id": "BABA",
+        "label": "Company",
+        "name": "Alibaba Group",
+        "description": "China e-commerce bellwether; ADR on NYSE",
+        "metadata": {"region": "China"},
+    },
+    {
+        "id": "PDD",
+        "label": "Company",
+        "name": "PDD Holdings (Temu)",
+        "description": "China e-commerce + international expansion via Temu",
+        "metadata": {"region": "China"},
+    },
     # ── Commodity Futures ──────────────────────────────────────────────
     {
         "id": "CL=F",
@@ -787,6 +1050,13 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "EV and energy storage supply chain; battery metals demand",
         "metadata": {"subtype": "commodity_etf", "commodity": "lithium"},
     },
+    {
+        "id": "GDX",
+        "label": "Asset",
+        "name": "VanEck Gold Miners ETF",
+        "description": "Large-cap gold miners; amplified gold signal with equity beta",
+        "metadata": {"subtype": "commodity_etf", "commodity": "gold_miners"},
+    },
     # ── Bonds & Yields — Yield Indices ─────────────────────────────────
     {
         "id": "^TNX",
@@ -865,6 +1135,56 @@ ENTITY_SEED_DATA: list[dict] = [
         "name": "iShares TIPS Bond ETF",
         "description": "Inflation-protected Treasuries; real yield / breakeven proxy",
         "metadata": {"subtype": "bond_etf", "credit_quality": "tips"},
+    },
+    {
+        "id": "JNK",
+        "label": "Asset",
+        "name": "SPDR Bloomberg High Yield Bond ETF",
+        "description": "Second HY benchmark alongside HYG; different underlying index",
+        "metadata": {"subtype": "bond_etf", "credit_quality": "high_yield"},
+    },
+    {
+        "id": "BKLN",
+        "label": "Asset",
+        "name": "Invesco Senior Loan ETF",
+        "description": "Floating-rate leveraged loans; different rate sensitivity than fixed HY",
+        "metadata": {"subtype": "bond_etf", "credit_quality": "senior_loans"},
+    },
+    {
+        "id": "EMB",
+        "label": "Asset",
+        "name": "iShares J.P. Morgan EM Bond ETF",
+        "description": "Emerging market sovereign bonds; EM credit stress signal",
+        "metadata": {"subtype": "bond_etf", "credit_quality": "em_sovereign"},
+    },
+    # ── Currency ETFs ─────────────────────────────────────────────────
+    {
+        "id": "DX-Y.NYB",
+        "label": "Index",
+        "name": "US Dollar Index (DXY)",
+        "description": "Broad dollar strength; inverse to gold, commodities, EM",
+        "metadata": {"category": "currency"},
+    },
+    {
+        "id": "UUP",
+        "label": "Asset",
+        "name": "Invesco DB US Dollar Bullish ETF",
+        "description": "Long USD position; liquid DXY proxy",
+        "metadata": {"subtype": "currency_etf", "currency": "USD"},
+    },
+    {
+        "id": "FXE",
+        "label": "Asset",
+        "name": "CurrencyShares Euro Trust",
+        "description": "Euro pure play; EUR/USD proxy",
+        "metadata": {"subtype": "currency_etf", "currency": "EUR"},
+    },
+    {
+        "id": "FXY",
+        "label": "Asset",
+        "name": "CurrencyShares Japanese Yen Trust",
+        "description": "Yen signal; BoJ policy sensitivity, carry trade indicator",
+        "metadata": {"subtype": "currency_etf", "currency": "JPY"},
     },
     # ── International ETFs ─────────────────────────────────────────────
     {

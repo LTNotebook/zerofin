@@ -21,6 +21,11 @@ US_INDICES: list[str] = [
     "^VIX",  # CBOE Volatility Index ("fear gauge")
     "^GSPTSE",  # S&P/TSX Composite (Canada)
     "^W5000",  # Wilshire 5000 (broadest US market)
+    # Volatility indices
+    "^VVIX",  # VIX of VIX — volatility of volatility, leads VIX
+    "^MOVE",  # ICE BofAML Bond Volatility — "VIX for Treasuries"
+    "^GVZ",  # CBOE Gold Volatility
+    "^OVX",  # CBOE Crude Oil Volatility
 ]
 
 # Select Sector SPDRs (all 11 GICS sectors) plus thematic/sub-sector ETFs
@@ -48,6 +53,13 @@ SECTOR_ETFS: list[str] = [
     "XHB",  # Homebuilders (SPDR)
     "KRE",  # Regional Banks (SPDR)
     "RSP",  # S&P 500 Equal Weight
+    # Factor ETFs — regime detection
+    "MTUM",  # Momentum factor (trend-following regime signal)
+    "QUAL",  # Quality factor (high ROE, low debt — late-cycle signal)
+    "USMV",  # Min Volatility factor (risk-off equity signal)
+    # Alternative / thematic proxies
+    "JETS",  # U.S. Global Jets ETF (airline demand / travel spending)
+    "BDRY",  # Breakwave Dry Bulk Shipping (global trade volume proxy)
 ]
 
 # Individual US stocks organized by sector/theme
@@ -81,6 +93,10 @@ KEY_STOCKS: list[str] = [
     "CVX",
     "COP",
     "SLB",
+    "OXY",
+    "MPC",  # Marathon Petroleum — refining margins signal
+    "PSX",  # Phillips 66 — midstream + refining
+    "KMI",  # Kinder Morgan — natural gas pipeline infrastructure
     # Defense / Aerospace
     "LMT",
     "RTX",
@@ -92,11 +108,22 @@ KEY_STOCKS: list[str] = [
     "JNJ",
     "PFE",
     "ABBV",
+    "MRNA",
+    "AMGN",
+    "MRK",  # Merck — oncology (Keytruda), top-selling drug globally
+    "GILD",  # Gilead Sciences — antivirals / HIV franchise
+    "REGN",  # Regeneron — immunology (Dupixent) + ophthalmology
+    "VRTX",  # Vertex Pharma — cystic fibrosis monopoly + gene editing
+    "BIIB",  # Biogen — neurology / Alzheimer's
     # Retail / Consumer
     "WMT",
     "COST",
     "HD",
     "NKE",
+    "MCD",
+    # Consumer Staples
+    "PG",
+    "KO",
     # Industrials
     "CAT",
     "GE",
@@ -122,10 +149,26 @@ KEY_STOCKS: list[str] = [
     "NFLX",
     "DIS",
     "VZ",
+    # REITs — individual names beyond XLRE sector ETF
+    "PLD",  # Prologis — industrial/logistics, e-commerce proxy
+    "AMT",  # American Tower — cell towers, rate-sensitive + wireless demand
+    "EQIX",  # Equinix — data centers, AI infrastructure demand
+    "DLR",  # Digital Realty — data centers, AI buildout signal
+    "WELL",  # Welltower — healthcare REIT, aging demographics
+    "SPG",  # Simon Property Group — retail/malls, consumer spending
+    "O",  # Realty Income — net lease, bond-like behavior
+    # Utilities — traditional + AI power demand
+    "NEE",  # NextEra Energy — renewables + AI datacenter power
+    "VST",  # Vistra — deregulated power, AI energy demand (pairs with CEG)
+    "SO",  # Southern Company — traditional regulated utility
+    "DUK",  # Duke Energy — traditional + AI power transition
     # Signal stocks (unusual insider activity or thematic bets)
     "KKR",
     "TTD",
     "COIN",
+    # China individual stocks
+    "BABA",  # Alibaba — China e-commerce bellwether
+    "PDD",  # PDD Holdings / Temu — China e-commerce + international expansion
 ]
 
 # Commodity futures and commodity-focused ETFs.
@@ -147,6 +190,7 @@ COMMODITIES: list[str] = [
     "DBA",  # Invesco DB Agriculture Fund
     "DBC",  # Invesco DB Commodity Index
     "LIT",  # Global X Lithium & Battery ETF
+    "GDX",  # VanEck Gold Miners ETF — amplified gold signal with equity beta
 ]
 
 # Treasury yields and fixed-income ETFs
@@ -164,6 +208,10 @@ BONDS_YIELDS: list[str] = [
     "LQD",  # iShares Investment Grade Corporate
     "AGG",  # iShares Core US Aggregate Bond
     "TIP",  # iShares TIPS (inflation-protected)
+    # Credit / loans
+    "JNK",  # SPDR Bloomberg High Yield (second HY benchmark alongside HYG)
+    "BKLN",  # Invesco Senior Loan ETF (floating-rate leveraged loans)
+    "EMB",  # iShares EM Bond ETF (emerging market sovereign bonds)
 ]
 
 # International / regional equity and bond ETFs
@@ -185,6 +233,14 @@ INTERNATIONAL: list[str] = [
     "EMLC",  # VanEck EM Local Currency Bond
     "EWT",  # iShares MSCI Taiwan
     "EWY",  # iShares MSCI South Korea
+]
+
+# Currency ETFs and indices
+CURRENCIES: list[str] = [
+    "DX-Y.NYB",  # US Dollar Index (DXY)
+    "UUP",  # Invesco DB US Dollar Bullish ETF
+    "FXE",  # CurrencyShares Euro Trust
+    "FXY",  # CurrencyShares Japanese Yen Trust
 ]
 
 # Major cryptocurrencies
@@ -236,6 +292,9 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "CVX":   {"sector": "XLE"},
     "COP":   {"sector": "XLE"},
     "OXY":   {"sector": "XLE"},
+    "MPC":   {"sector": "XLE"},
+    "PSX":   {"sector": "XLE"},
+    "KMI":   {"sector": "XLE"},
     # Industrials
     "LMT":   {"sector": "XLI", "sub_sector": "ITA"},
     "RTX":   {"sector": "XLI", "sub_sector": "ITA"},
@@ -249,6 +308,11 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "ABBV":  {"sector": "XLV"},
     "MRNA":  {"sector": "XLV", "sub_sector": "IBB"},
     "AMGN":  {"sector": "XLV", "sub_sector": "IBB"},
+    "MRK":   {"sector": "XLV"},
+    "GILD":  {"sector": "XLV", "sub_sector": "IBB"},
+    "REGN":  {"sector": "XLV", "sub_sector": "IBB"},
+    "VRTX":  {"sector": "XLV", "sub_sector": "IBB"},
+    "BIIB":  {"sector": "XLV", "sub_sector": "IBB"},
     # Consumer Staples
     "WMT":   {"sector": "XLP"},
     "COST":  {"sector": "XLP"},
@@ -284,6 +348,18 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "COIN":  {"sector": "XLF"},
     # Utilities
     "CEG":   {"sector": "XLU"},
+    "NEE":   {"sector": "XLU"},
+    "VST":   {"sector": "XLU"},
+    "SO":    {"sector": "XLU"},
+    "DUK":   {"sector": "XLU"},
+    # Real Estate
+    "PLD":   {"sector": "XLRE"},
+    "AMT":   {"sector": "XLRE"},
+    "EQIX":  {"sector": "XLRE"},
+    "DLR":   {"sector": "XLRE"},
+    "WELL":  {"sector": "XLRE"},
+    "SPG":   {"sector": "XLRE"},
+    "O":     {"sector": "XLRE"},
 }
 
 
@@ -346,7 +422,8 @@ for group_name, group_info in REDUNDANCY_GROUPS.items():
 # All yfinance tickers combined (deduplicated, order preserved)
 ALL_TICKERS: list[str] = list(
     dict.fromkeys(
-        US_INDICES + SECTOR_ETFS + KEY_STOCKS + COMMODITIES + BONDS_YIELDS + INTERNATIONAL + CRYPTO
+        US_INDICES + SECTOR_ETFS + KEY_STOCKS + COMMODITIES
+        + BONDS_YIELDS + INTERNATIONAL + CURRENCIES + CRYPTO
     )
 )
 
@@ -387,6 +464,8 @@ FRED_GROWTH: list[str] = [
     "RSXFS",  # Retail Sales Ex Food Services
     "DGORDER",  # Durable Goods Orders (business capex proxy)
     "CPGDPAI",  # Corporate Profits After Tax
+    "TCU",  # Capacity Utilization: Total Index (overheating/slack signal)
+    "CP",  # Corporate Profits After Tax (alt measure, leads S&P ~1 quarter)
 ]
 
 # Housing starts, permits, prices, mortgage rates
@@ -428,11 +507,16 @@ FRED_RATES: list[str] = [
     "SOFR",  # Secured Overnight Financing Rate (replaced LIBOR)
 ]
 
-# Corporate bond option-adjusted spreads — credit stress gauges
+# Corporate bond spreads, bank lending, and credit health
 FRED_CREDIT: list[str] = [
     "BAMLH0A0HYM2",  # ICE BofA US High Yield OAS
     "BAMLC0A0CM",  # ICE BofA US Investment Grade OAS
     "BAMLH0A0HYM2EY",  # ICE BofA High Yield Effective Yield
+    # Bank lending and credit conditions
+    "DRTSCILM",  # Banks Tightening C&I Loan Standards (Large Firms) — SLOOS proxy
+    "DRALACBS",  # Delinquency Rate: All Loans, All Commercial Banks
+    "TOTALSL",  # Total Consumer Credit Outstanding
+    "TOTBKCR",  # Bank Credit, All Commercial Banks (credit impulse)
 ]
 
 # Money supply, velocity, Fed balance sheet, reverse repo
@@ -448,6 +532,7 @@ FRED_TRADE: list[str] = [
     "BOPGSTB",  # Trade Balance: Goods & Services
     "DTWEXBGS",  # Nominal Broad US Dollar Index
     "DTWEXAFEGS",  # Nominal Advanced Foreign Economies Dollar Index
+    "IPG21112N",  # Industrial Production: Crude Oil Mining (oil production index)
 ]
 
 # Composite activity, financial stress, and recession indicators
@@ -660,6 +745,20 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "frequency": "quarterly",
         "category": "growth",
     },
+    "TCU": {
+        "name": "Capacity Utilization: Total Index",
+        "unit": "percent",
+        "metric": "rate",
+        "frequency": "monthly",
+        "category": "growth",
+    },
+    "CP": {
+        "name": "Corporate Profits After Tax",
+        "unit": "billions_usd",
+        "metric": "value",
+        "frequency": "quarterly",
+        "category": "growth",
+    },
     # --- Housing ---
     "HOUST": {
         "name": "Housing Starts",
@@ -833,6 +932,34 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "frequency": "daily",
         "category": "credit",
     },
+    "DRTSCILM": {
+        "name": "Banks Tightening C&I Loan Standards (Large Firms)",
+        "unit": "percent",
+        "metric": "rate",
+        "frequency": "quarterly",
+        "category": "credit",
+    },
+    "DRALACBS": {
+        "name": "Delinquency Rate: All Loans, All Commercial Banks",
+        "unit": "percent",
+        "metric": "rate",
+        "frequency": "quarterly",
+        "category": "credit",
+    },
+    "TOTALSL": {
+        "name": "Total Consumer Credit Outstanding",
+        "unit": "billions_usd",
+        "metric": "value",
+        "frequency": "monthly",
+        "category": "credit",
+    },
+    "TOTBKCR": {
+        "name": "Bank Credit, All Commercial Banks",
+        "unit": "billions_usd",
+        "metric": "value",
+        "frequency": "weekly",
+        "category": "credit",
+    },
     # --- Money Supply ---
     "M2SL": {
         "name": "M2 Money Supply",
@@ -882,6 +1009,13 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "unit": "index_points",
         "metric": "index",
         "frequency": "daily",
+        "category": "trade",
+    },
+    "IPG21112N": {
+        "name": "Industrial Production: Mining: Crude Oil",
+        "unit": "index_points",
+        "metric": "index",
+        "frequency": "monthly",
         "category": "trade",
     },
     # --- Leading / Composite Indicators ---
