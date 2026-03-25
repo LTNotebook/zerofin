@@ -17,7 +17,10 @@ from __future__ import annotations
 import logging
 import sys
 
-from zerofin.analysis.correlations import run_correlation_pipeline
+from zerofin.analysis.correlations import (
+    run_correlation_pipeline,
+    run_monthly_correlation_pipeline,
+)
 from zerofin.config import settings
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
@@ -65,6 +68,26 @@ def main() -> None:
             except Exception as error:
                 logger.error("Correlation engine failed for %d-day window: %s", window, error)
                 has_errors = True
+
+        # Monthly FRED pipeline
+        logger.info("-" * 60)
+        logger.info("Running monthly FRED pipeline")
+        logger.info("-" * 60)
+
+        try:
+            summary = run_monthly_correlation_pipeline(db, graph)
+            all_summaries.append(summary)
+
+            logger.info("  Pairs tested:      %d", summary.total_pairs_tested)
+            logger.info("  Above threshold:   %d", summary.pairs_above_threshold)
+            logger.info("  Survived FDR:      %d", summary.pairs_surviving_fdr)
+            logger.info("  Stored in Neo4j:   %d", summary.relationships_stored)
+            logger.info("  Duration:          %.1fs", summary.duration_seconds)
+            logger.info("")
+
+        except Exception as error:
+            logger.error("Monthly FRED pipeline failed: %s", error)
+            has_errors = True
 
     # Final summary
     logger.info("=" * 60)

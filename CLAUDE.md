@@ -130,3 +130,11 @@ zerofin/
 - Don't be pushy — if we're exploring or brainstorming, go with it
 - Always ask before committing or pushing — user reviews code first
 - Don't take silent actions — explain what you're doing before creating files or running commands
+- Build one file at a time, then walk through what it does — don't dump 9 files at once
+- When the user asks a question, STOP and answer it fully — don't rush to the next task
+- Let the user decide when to move on — they'll say when they're ready
+- Give complete answers the first time — don't drip-feed pieces that require follow-ups
+- This is a learning project — the user wants to understand WHY, not just see working code
+- When uncertain about domain-specific decisions (thresholds, algorithms, financial math), don't guess — suggest research. Research has been the most valuable part of this project. Every major design decision should be backed by research, not assumptions
+- Suggest specific research prompts — the user runs them in separate terminals and saves results to Obsidian
+- All research saves to Obsidian: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Quality & Research/`

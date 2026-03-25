@@ -54,7 +54,7 @@ def main() -> None:
         db.setup_tables()
 
     # Load price history
-    price_result = backfill_prices(period="1y")
+    price_result = backfill_prices(period="3y")
     logger.info(
         "Prices: %d stored, %d failed",
         price_result.get("stored", 0),
@@ -62,7 +62,7 @@ def main() -> None:
     )
 
     # Load economic history
-    econ_result = backfill_economic(years=1)
+    econ_result = backfill_economic(years=3)
     logger.info(
         "Economic: %d stored, %d failed",
         econ_result.get("stored", 0),

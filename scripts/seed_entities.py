@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from zerofin.data.tickers import FRED_INDICATORS
 from zerofin.models.entities import EntityCreate
 from zerofin.storage.graph import GraphStorage
 
@@ -1007,6 +1008,25 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "High-throughput L1; DeFi/NFT/meme coin activity, retail proxy",
         "metadata": {"subtype": "crypto"},
     },
+    # ── FRED Economic Indicators ────────────────────────────────────────
+    # Auto-generated from FRED_INDICATORS metadata in tickers.py.
+    # These need to exist as nodes so the correlation engine can create
+    # CORRELATES_WITH edges between indicators and assets.
+    *[
+        {
+            "id": series_id,
+            "label": "Indicator",
+            "name": meta["name"],
+            "description": f"{meta['category']} indicator ({meta['frequency']})",
+            "metadata": {
+                "unit": meta["unit"],
+                "metric": meta["metric"],
+                "frequency": meta["frequency"],
+                "category": meta["category"],
+            },
+        }
+        for series_id, meta in FRED_INDICATORS.items()
+    ],
     # ── Sector Entities ────────────────────────────────────────────────
     # These are the logical sectors that companies BELONG_TO.
     {
