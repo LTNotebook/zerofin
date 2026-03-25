@@ -18,6 +18,7 @@ the list.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 import pendulum
 from pydantic import BaseModel, Field, field_validator
@@ -191,7 +192,7 @@ class EntityCreate(BaseModel):
     # A Company might have sector and market_cap.
     # An Indicator might have unit and release_schedule.
     # Rather than making separate models for each type, we use a flexible dict.
-    metadata: dict | None = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Extra properties specific to this entity type",
     )
@@ -210,7 +211,7 @@ class EntityCreate(BaseModel):
         """Normalize IDs to uppercase to prevent duplicates."""
         return value.upper()
 
-    def to_graph_properties(self) -> dict:
+    def to_graph_properties(self) -> dict[str, Any]:
         """Convert this model into a dict ready for Neo4j.
 
         Neo4j nodes store flat properties, so we merge the metadata
@@ -229,7 +230,12 @@ class EntityCreate(BaseModel):
 
         # Merge metadata into top-level properties
         # So {"sector": "Technology"} becomes a direct property on the node
+        # Protected keys can't be overwritten by metadata
         if self.metadata:
-            properties.update(self.metadata)
+            reserved = {"id", "name", "description"}
+            safe_metadata = {
+                k: v for k, v in self.metadata.items() if k not in reserved
+            }
+            properties.update(safe_metadata)
 
         return properties

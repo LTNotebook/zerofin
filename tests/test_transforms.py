@@ -15,11 +15,14 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pendulum
 import polars as pl
 
-from zerofin.analysis.correlations import (
+from zerofin.analysis.monthly import (
     _build_monthly_indicator_changes,
     _build_monthly_returns,
+)
+from zerofin.analysis.transforms import (
     _compute_transforms,
     _log_returns,
     _remove_market_sector_beta,
@@ -188,25 +191,27 @@ class TestComputeTransforms:
 class TestBetaRemoval:
     """Tests for market + sector beta removal."""
 
-    def test_perfect_market_tracker_has_zero_residual(self) -> None:
-        """A stock that moves exactly like the market should have
-        near-zero residuals after beta removal.
+    def test_unlisted_stock_passes_through(self) -> None:
+        """A stock NOT in STOCK_SECTOR_MAP should pass through untouched.
+
+        Beta removal only applies to stocks with a sector mapping.
+        Unknown tickers are left as-is.
         """
-        # Fake market returns
         np.random.seed(42)
         market = np.random.randn(100) * 0.01
 
         df = pl.DataFrame({
             "date": list(range(100)),
             "asset:^GSPC": market.tolist(),
-            # This stock is just the market times 1.5
+            # FAKE isn't in STOCK_SECTOR_MAP so beta removal won't touch it
             "asset:FAKE": (market * 1.5).tolist(),
         })
         result = _remove_market_sector_beta(df)
 
-        # FAKE isn't in STOCK_SECTOR_MAP so beta removal won't touch it
-        # But ^GSPC should pass through unchanged
         assert "asset:^GSPC" in result.columns
+        assert "asset:FAKE" in result.columns
+        # FAKE should be identical before and after (not beta-removed)
+        assert result["asset:FAKE"].to_list() == df["asset:FAKE"].to_list()
 
     def test_market_column_preserved(self) -> None:
         """The market (^GSPC) itself shouldn't be beta-removed."""
@@ -245,19 +250,16 @@ class TestMonthlyReturns:
 
     def test_monthly_return_calculation(self) -> None:
         """Monthly return should be (end price / start price) - 1."""
-        # Fake daily prices: Jan ends at 110, Feb ends at 121
-        import datetime
-
         rows = []
         # January: price goes 100 -> 110
         for day in range(1, 32):
             try:
-                datetime.date(2024, 1, day)  # validate date exists
+                ts = pendulum.datetime(2024, 1, day)
                 rows.append({
                     "entity_type": "asset",
                     "entity_id": "TEST",
                     "value": 100.0 + day * (10.0 / 31),
-                    "timestamp": datetime.datetime(2024, 1, day),
+                    "timestamp": ts,
                 })
             except ValueError:
                 pass
@@ -265,12 +267,12 @@ class TestMonthlyReturns:
         # February: price goes 110 -> 121
         for day in range(1, 29):
             try:
-                datetime.date(2024, 2, day)  # validate date exists
+                ts = pendulum.datetime(2024, 2, day)
                 rows.append({
                     "entity_type": "asset",
                     "entity_id": "TEST",
                     "value": 110.0 + day * (11.0 / 28),
-                    "timestamp": datetime.datetime(2024, 2, day),
+                    "timestamp": ts,
                 })
             except ValueError:
                 pass
@@ -278,12 +280,12 @@ class TestMonthlyReturns:
         # March: price goes 121 -> 133
         for day in range(1, 32):
             try:
-                datetime.date(2024, 3, day)  # validate date exists
+                ts = pendulum.datetime(2024, 3, day)
                 rows.append({
                     "entity_type": "asset",
                     "entity_id": "TEST",
                     "value": 121.0 + day * (12.0 / 31),
-                    "timestamp": datetime.datetime(2024, 3, day),
+                    "timestamp": ts,
                 })
             except ValueError:
                 pass
@@ -298,26 +300,24 @@ class TestMonthlyIndicatorChanges:
 
     def test_first_difference(self) -> None:
         """Monthly change should be this month minus last month."""
-        import datetime
-
         rows = [
             {
                 "entity_type": "indicator",
                 "entity_id": "CPI",
                 "value": 310.0,
-                "timestamp": datetime.datetime(2024, 1, 15),
+                "timestamp": pendulum.datetime(2024, 1, 15),
             },
             {
                 "entity_type": "indicator",
                 "entity_id": "CPI",
                 "value": 312.0,
-                "timestamp": datetime.datetime(2024, 2, 15),
+                "timestamp": pendulum.datetime(2024, 2, 15),
             },
             {
                 "entity_type": "indicator",
                 "entity_id": "CPI",
                 "value": 315.0,
-                "timestamp": datetime.datetime(2024, 3, 15),
+                "timestamp": pendulum.datetime(2024, 3, 15),
             },
         ]
 

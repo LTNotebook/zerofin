@@ -15,7 +15,7 @@ collectors the same way without caring about the details:
 
     for collector in all_collectors:
         result = collector.collect_latest()
-        print(result["stored"])  # same format every time
+        logger.info(result["stored"])  # same format every time
 
 New collectors just fill in the blanks — the template handles
 the structure.

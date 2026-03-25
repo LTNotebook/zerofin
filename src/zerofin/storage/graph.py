@@ -321,6 +321,7 @@ class GraphStorage:
         """
         self._validate_label(from_label)
         self._validate_label(to_label)
+        self._validate_relationship_type(relationship_type)
 
         # Default to empty properties if none provided
         rel_props = properties or {}
@@ -426,6 +427,61 @@ class GraphStorage:
         )
         return results
 
+    def create_relationships_batch(
+        self,
+        relationships: list[dict[str, Any]],
+    ) -> int:
+        """Batch-create relationships using UNWIND, grouped by type.
+
+        Since Neo4j can't parameterize relationship types, this groups
+        the input by rel_type and runs one UNWIND query per type. Still
+        much faster than individual create_relationship() calls.
+
+        Args:
+            relationships: List of dicts, each with keys:
+                - from_id: id of the source node
+                - to_id: id of the target node
+                - rel_type: relationship name in UPPER_SNAKE_CASE
+                - props: dict of relationship properties (optional)
+
+        Returns:
+            Total number of relationships created or updated.
+        """
+        if not relationships:
+            return 0
+
+        # Validate all relationship types up front
+        for rel in relationships:
+            self._validate_relationship_type(rel["rel_type"])
+
+        # Group by relationship type — one UNWIND query per type
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for rel in relationships:
+            rel_type = rel["rel_type"]
+            if rel_type not in by_type:
+                by_type[rel_type] = []
+            by_type[rel_type].append({
+                "from_id": rel["from_id"],
+                "to_id": rel["to_id"],
+                "props": rel.get("props", {}),
+            })
+
+        total = 0
+        for rel_type, batch in by_type.items():
+            query = (
+                f"UNWIND $batch AS item "
+                f"MATCH (a {{id: item.from_id}}) "
+                f"MATCH (b {{id: item.to_id}}) "
+                f"MERGE (a)-[r:{rel_type}]->(b) "
+                f"SET r += item.props "
+                f"RETURN count(r) AS total"
+            )
+            records, _, _ = self.driver.execute_query(query, batch=batch)
+            total += records[0]["total"]
+
+        logger.info("Batch created/updated %d relationships", total)
+        return total
+
     # ── Generic query ─────────────────────────────────────────────────
 
     def run_query(
@@ -465,4 +521,22 @@ class GraphStorage:
         ENTITY_LABELS at the top of this file.
         """
         if label not in ENTITY_LABELS:
-            raise ValueError(f"Unknown entity label '{label}'. Must be one of: {ENTITY_LABELS}")
+            raise ValueError(
+                f"Unknown entity label '{label}'. "
+                f"Must be one of: {ENTITY_LABELS}"
+            )
+
+    @staticmethod
+    def _validate_relationship_type(rel_type: str) -> None:
+        """Raise ValueError if the relationship type has invalid characters.
+
+        Relationship types should be UPPER_SNAKE_CASE only. This prevents
+        Cypher injection through malformed relationship type strings.
+        """
+        import re
+
+        if not re.match(r"^[A-Z_]+$", rel_type):
+            raise ValueError(
+                f"Invalid relationship type '{rel_type}'. "
+                f"Must be UPPER_SNAKE_CASE (letters and underscores only)."
+            )

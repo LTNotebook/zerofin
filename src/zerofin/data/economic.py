@@ -382,6 +382,14 @@ class EconomicCollector(BaseCollector):
                                 exc,
                             )
                             failed_count += 1
+                        except Exception as exc:
+                            logger.warning(
+                                "DB insert failed for %s at %s: %s",
+                                series_id,
+                                observation_date,
+                                exc,
+                            )
+                            failed_count += 1
 
                     collected_count += series_collected
                     skipped_null_count += series_null

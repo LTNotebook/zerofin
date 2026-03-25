@@ -111,11 +111,15 @@ zerofin/
 - NEVER commit .env or any file with API keys
 - NEVER use print() — always use logger
 - NEVER use Pandas — use Polars
-- NEVER store data without validation
+- NEVER store data without validation (always route through Pydantic models)
 - NEVER insert into Neo4j one record at a time — always batch with UNWIND
+- NEVER hardcode thresholds in code — put them in config.py so they're tunable
+- NEVER edit files that another agent might be working on simultaneously
 - Ruff runs automatically via pre-commit hook — don't run it manually
 - ALWAYS write tests for new functionality
 - ALWAYS use uv commands, never raw pip
+- ALWAYS verify data quality after changes (run engine, check Neo4j, audit results)
+- ALWAYS suggest research when uncertain about domain-specific decisions
 
 ## Working Style
 - Explain things in plain English, not jargon
@@ -137,4 +141,8 @@ zerofin/
 - This is a learning project — the user wants to understand WHY, not just see working code
 - When uncertain about domain-specific decisions (thresholds, algorithms, financial math), don't guess — suggest research. Research has been the most valuable part of this project. Every major design decision should be backed by research, not assumptions
 - Suggest specific research prompts — the user runs them in separate terminals and saves results to Obsidian
-- All research saves to Obsidian: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Quality & Research/`
+- All documents save to Obsidian (never project docs/ folder):
+  - Research: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Research/`
+  - Quality audits: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Quality Control/`
+  - Code reviews: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Code Reviews/`
+  - Prompts: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Prompts/`

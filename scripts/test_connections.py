@@ -145,21 +145,27 @@ def test_yfinance() -> None:
     logger.info("STEP 4: Testing yfinance (real stock price)")
     logger.info("=" * 60)
 
-    # Import here so the other tests still work even if yfinance has issues
-    import yfinance
+    try:
+        # Import here so the other tests still work even if yfinance has issues
+        import yfinance
 
-    # Pull NVIDIA's data — just the last day
-    ticker = yfinance.Ticker("NVDA")
-    history = ticker.history(period="1d")
+        # Pull NVIDIA's data — just the last day
+        ticker = yfinance.Ticker("NVDA")
+        history = ticker.history(period="1d")
 
-    if history.empty:
-        logger.error("  FAILED — no data returned from yfinance")
-        return
+        if history.empty:
+            logger.error("  FAILED — no data returned from yfinance")
+            return
 
-    # Get the closing price from the last row
-    close_price = history["Close"].iloc[-1]
-    logger.info("  NVDA latest close price: $%.2f", close_price)
-    logger.info("  yfinance test PASSED")
+        # Get the closing price from the last row
+        # (yfinance returns a pandas DataFrame — we use pandas here
+        # only because yfinance requires it)
+        close_price = history["Close"].iloc[-1]
+        logger.info("  NVDA latest close price: $%.2f", close_price)
+        logger.info("  yfinance test PASSED")
+
+    except Exception:
+        logger.exception("  FAILED — yfinance error")
 
 
 def main() -> None:

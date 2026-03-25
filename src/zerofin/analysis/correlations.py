@@ -36,17 +36,27 @@ import pendulum
 import polars as pl
 from scipy import stats
 
-from zerofin.config import settings
-from zerofin.data.tickers import (
-    FRED_INDICATORS,
-    REDUNDANCY_LOOKUP,
-    STOCK_SECTOR_MAP,
+from zerofin.analysis.filters import _apply_fdr_correction, _apply_stability_filter
+from zerofin.analysis.transforms import (
+    MIN_VARIANCE,
+    _compute_transforms,
+    _remove_market_sector_beta,
+    _winsorize,
+    _z_score_all,
 )
+from zerofin.config import settings
+from zerofin.data.tickers import REDUNDANCY_LOOKUP
 from zerofin.models.correlations import CorrelationCandidate, CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
 
 logger = logging.getLogger(__name__)
+
+# Minimum complete observations needed for statistical meaning
+MIN_CORRELATION_OBS = 30
+
+# Minimum observations for Spearman verification of lagged pairs
+MIN_SPEARMAN_OBS = 20
 
 
 # ─── Main entry point ────────────────────────────────────────────────
@@ -136,7 +146,7 @@ def run_correlation_pipeline(
     returns_df = _remove_market_sector_beta(returns_df)
     logger.info("Removed market + sector beta from asset returns")
 
-    # Step 6: Calculate pairwise correlations at each lag
+    # Step 7: Calculate pairwise correlations at each lag
     entity_columns = [c for c in returns_df.columns if c != "date"]
     raw_results = _compute_pairwise_correlations(returns_df, entity_columns, min_obs=min_obs)
     logger.info(
@@ -157,20 +167,20 @@ def run_correlation_pipeline(
             duration_seconds=time.monotonic() - start_time,
         )
 
-    # Step 6: FDR correction
+    # Step 8: FDR correction
     surviving = _apply_fdr_correction(raw_results)
     logger.info("%d correlations survived FDR correction", len(surviving))
 
-    # Step 7: Stability filter
+    # Step 9: Stability filter
     if settings.CORRELATION_STABILITY_FILTER and window >= 42:
         surviving = _apply_stability_filter(returns_df, surviving)
         logger.info("%d correlations survived stability filter", len(surviving))
 
-    # Step 8: Build validated candidates
+    # Step 10: Build validated candidates
     candidates = _build_candidates(surviving, window, window_end)
     logger.info("Built %d validated candidates", len(candidates))
 
-    # Step 9: Clear old statistical candidates and store new ones
+    # Step 11: Clear old statistical candidates and store new ones
     cleared = _clear_old_candidates(graph, window)
     logger.info("Cleared %d old statistical candidates", cleared)
 
@@ -256,217 +266,7 @@ def _build_wide_dataframe(raw_rows: list[dict], *, min_obs: int = 200) -> pl.Dat
     return wide_df
 
 
-# ─── Step 3: Transform data ──────────────────────────────────────────
-
-
-def _compute_transforms(wide_df: pl.DataFrame) -> pl.DataFrame:
-    """Stage 1: Transform each series into its natural return.
-
-    This is the first half of two-stage normalization. Each asset type
-    gets the transformation that makes economic sense for it:
-
-    - Stocks, ETFs, commodity futures, crypto: log returns
-    - VIX (volatility index): percentage change (not log returns)
-    - Interest rates and spreads: first differences (absolute change)
-    - Economic levels (CPI, industrial production): first differences
-    - Survey/count indicators: first differences
-
-    After this step, every series is stationary (no trend) but still
-    on different scales. Stage 2 (z-scoring) fixes the scale issue.
-    """
-    # Tickers that need percentage change instead of log returns
-    # VIX can spike but never goes to zero, so pct change works
-    VOLATILITY_TICKERS = {"^VIX"}
-
-    result_cols = {"date": wide_df["date"]}
-
-    for col in wide_df.columns:
-        if col == "date":
-            continue
-
-        series = wide_df[col]
-        entity_type, entity_id = col.split(":", 1)
-
-        if entity_type == "asset":
-            if entity_id in VOLATILITY_TICKERS:
-                # Percentage change for volatility indices
-                shifted = series.shift(1)
-                transformed = (series - shifted) / shifted.replace(0, None)
-            else:
-                # Log returns for everything else: stocks, ETFs, commodities, crypto
-                transformed = _log_returns(series)
-
-        elif entity_type == "indicator":
-            # All indicators get first differences — this captures
-            # the CHANGE in the indicator, which is what moves markets.
-            # Rates change by basis points, CPI changes month-to-month, etc.
-            transformed = series.diff()
-
-        else:
-            transformed = _log_returns(series)
-
-        result_cols[col] = transformed
-
-    result = pl.DataFrame(result_cols)
-    result = result.slice(1)  # Drop first row — always NaN after transforms
-
-    return result
-
-
-def _log_returns(series: pl.Series) -> pl.Series:
-    """Calculate log returns: ln(today / yesterday).
-
-    Returns are NaN where the previous value was zero or null.
-    """
-    shifted = series.shift(1)
-    ratio = series / shifted.replace(0, None)
-    return ratio.log()
-
-
-# ─── Step 4: Z-score all returns ─────────────────────────────────────
-
-
-def _z_score_all(df: pl.DataFrame) -> pl.DataFrame:
-    """Stage 2: Z-score every return series to a common scale.
-
-    After Stage 1, a stock log return of 0.012 and a rate first difference
-    of 0.0006 are both "returns" but on wildly different scales. Z-scoring
-    converts both to "how many standard deviations was this move?"
-
-    A 2σ move in rates is now directly comparable to a 2σ move in stocks.
-    This is what makes cross-asset correlation meaningful.
-
-    Uses full-window z-score (not rolling) since we're computing correlation
-    over the same window anyway.
-    """
-    result_cols = {"date": df["date"]}
-
-    for col in df.columns:
-        if col == "date":
-            continue
-
-        series = df[col]
-        mean = series.mean()
-        std = series.std()
-
-        if std is None or std < 1e-10:
-            # Near-zero variance — can't z-score, fill with nulls
-            result_cols[col] = pl.Series(col, [None] * series.len())
-        else:
-            result_cols[col] = ((series - mean) / std).alias(col)
-
-    return pl.DataFrame(result_cols)
-
-
-# ─── Step 4: Winsorize ───────────────────────────────────────────────
-
-
-def _winsorize(df: pl.DataFrame) -> pl.DataFrame:
-    """Cap extreme values after z-scoring.
-
-    Since the data is now z-scored (mean ~0, std ~1), we clip at the
-    configured percentiles. On z-scored data, the 1st/99th percentiles
-    are roughly ±2.3σ, which removes extreme outlier days while keeping
-    the bulk of the distribution intact.
-    """
-    low_pct = settings.CORRELATION_WINSORIZE_LOW
-    high_pct = settings.CORRELATION_WINSORIZE_HIGH
-
-    entity_cols = [c for c in df.columns if c != "date"]
-
-    capped_cols = []
-    for col in entity_cols:
-        series = df[col].drop_nulls()
-        if series.len() == 0:
-            capped_cols.append(df[col])
-            continue
-
-        low_val = series.quantile(low_pct)
-        high_val = series.quantile(high_pct)
-        capped = df[col].clip(low_val, high_val)
-        capped_cols.append(capped.alias(col))
-
-    return df.select([pl.col("date")] + capped_cols)
-
-
-# ─── Step 5: Remove market + sector beta ─────────────────────────────
-
-
-def _remove_market_sector_beta(df: pl.DataFrame) -> pl.DataFrame:
-    """Remove market and sector influence from asset returns using joint OLS.
-
-    For each stock, we regress its returns against the S&P 500 (^GSPC) and
-    its sector ETF simultaneously. The residuals — what's left after removing
-    both influences — are what we correlate. This way, Apple and Costco
-    won't look correlated just because they both follow the market.
-
-    Joint OLS (not sequential) is used because SPY and sector ETFs are
-    themselves correlated. Doing it in one step avoids order-dependence.
-
-    Indicators are left alone — they're already macro-scale data and don't
-    have market beta to remove.
-    """
-    market_key = "asset:^GSPC"
-
-    if market_key not in df.columns:
-        logger.warning("^GSPC not found in data — skipping beta removal")
-        return df
-
-    market = df[market_key].to_numpy().astype(float)
-    result_cols = {"date": df["date"]}
-
-    for col in df.columns:
-        if col == "date":
-            continue
-
-        # Only remove beta from individual stocks, not from indices/ETFs/indicators
-        entity_type, entity_id = col.split(":", 1)
-        if entity_type != "asset" or entity_id not in STOCK_SECTOR_MAP:
-            result_cols[col] = df[col]
-            continue
-
-        series = df[col].to_numpy().astype(float)
-
-        # Build the factor matrix: [constant, market, sector (if available)]
-        sector_etf = STOCK_SECTOR_MAP[entity_id].get("sector")
-        sector_key = f"asset:{sector_etf}" if sector_etf else None
-
-        # Find valid rows where all factors have data
-        mask = ~np.isnan(series) & ~np.isnan(market)
-        factors = [np.ones(mask.sum()), market[mask]]
-
-        if sector_key and sector_key in df.columns:
-            sector = df[sector_key].to_numpy().astype(float)
-            mask = mask & ~np.isnan(sector)
-            factors = [np.ones(mask.sum()), market[mask], sector[mask]]
-
-        if mask.sum() < 30:
-            # Not enough data for regression — keep original
-            result_cols[col] = df[col]
-            continue
-
-        # Joint OLS: regress stock on [constant, market, sector]
-        x_matrix = np.column_stack(factors)
-        betas = np.linalg.lstsq(x_matrix, series[mask], rcond=None)[0]
-
-        # Calculate residuals for ALL rows (not just the masked ones)
-        full_factors = [np.ones(len(series)), market]
-        if sector_key and sector_key in df.columns:
-            sector_full = df[sector_key].to_numpy().astype(float)
-            full_factors.append(sector_full)
-        full_x = np.column_stack(full_factors)
-        predicted = full_x @ betas
-        residuals = series - predicted
-
-        # Restore NaNs where original data was missing
-        residuals[np.isnan(series)] = np.nan
-
-        result_cols[col] = pl.Series(col, residuals)
-
-    return pl.DataFrame(result_cols)
-
-
-# ─── Step 6: Pairwise correlations ───────────────────────────────────
+# ─── Step 7: Pairwise correlations ───────────────────────────────────
 
 
 def _compute_pairwise_correlations(
@@ -516,7 +316,7 @@ def _compute_pairwise_correlations(
             valid = ~np.isnan(series)
             if valid.sum() < min_obs:
                 continue
-            if np.nanstd(series) < 1e-10:
+            if np.nanstd(series) < MIN_VARIANCE:
                 continue
 
             row_labels.append((col, lag))
@@ -532,8 +332,7 @@ def _compute_pairwise_correlations(
     valid_mask = ~np.isnan(matrix).any(axis=0)
     n_obs = valid_mask.sum()
 
-    # Need a reasonable minimum — at least 30 observations for any statistical meaning
-    if n_obs < 30:
+    if n_obs < MIN_CORRELATION_OBS:
         logger.warning(
             "Only %d complete observations — need at least 30", n_obs
         )
@@ -621,14 +420,14 @@ def _compute_pairwise_correlations(
             series_b = df[col_b].shift(lag) if lag > 0 else df[col_b]
             pair_df = pl.DataFrame({"a": series_a, "b": series_b}).drop_nulls()
 
-            if pair_df.height < 20:
+            if pair_df.height < MIN_SPEARMAN_OBS:
                 spearman_verified.append(result)
                 continue
 
             a_arr = pair_df["a"].to_numpy()
             b_arr = pair_df["b"].to_numpy()
 
-            if np.std(a_arr) < 1e-10 or np.std(b_arr) < 1e-10:
+            if np.std(a_arr) < MIN_VARIANCE or np.std(b_arr) < MIN_VARIANCE:
                 spearman_verified.append(result)
                 continue
 
@@ -652,131 +451,7 @@ def _compute_pairwise_correlations(
     return results
 
 
-# ─── Step 6: FDR correction ──────────────────────────────────────────
-
-
-def _apply_fdr_correction(results: list[dict]) -> list[dict]:
-    """Apply Benjamini-Hochberg False Discovery Rate correction.
-
-    When you test 20,000 pairs, ~1,000 will look significant by pure chance
-    at p < 0.05. FDR correction adjusts for this so we only keep the ones
-    that are likely real.
-
-    The algorithm:
-      1. Sort all p-values from smallest to largest
-      2. For each p-value at rank i out of m total tests:
-         adjusted_p = p * m / i
-      3. Keep only results where adjusted_p <= alpha
-    """
-    alpha = settings.CORRELATION_FDR_ALPHA
-
-    if not results:
-        return []
-
-    # Sort by p-value (smallest first)
-    sorted_results = sorted(results, key=lambda r: r["pearson_p"])
-    m = len(sorted_results)
-
-    # Benjamini-Hochberg: adjusted_p = p * m / rank
-    # Walk backwards to enforce monotonicity (each adjusted_p <= the one after it)
-    adjusted_p_values = [0.0] * m
-    adjusted_p_values[m - 1] = sorted_results[m - 1]["pearson_p"]
-
-    for i in range(m - 2, -1, -1):
-        rank = i + 1
-        raw_adjusted = sorted_results[i]["pearson_p"] * m / rank
-        # Enforce monotonicity: can't be larger than the next one
-        adjusted_p_values[i] = min(raw_adjusted, adjusted_p_values[i + 1])
-
-    # Keep results where adjusted p-value is below alpha
-    surviving = []
-    for i, result in enumerate(sorted_results):
-        result["adjusted_p"] = adjusted_p_values[i]
-        if adjusted_p_values[i] <= alpha:
-            surviving.append(result)
-
-    return surviving
-
-
-# ─── Step 7: Stability filter ────────────────────────────────────────
-
-
-def _apply_stability_filter(
-    df: pl.DataFrame,
-    results: list[dict],
-) -> list[dict]:
-    """Split the window in half and require correlation in both halves.
-
-    A correlation that only exists in one half of the data is probably
-    a temporary fluke or regime-dependent. If it holds in both halves,
-    it's more likely to be real.
-    """
-    min_strength = settings.CORRELATION_TIER_STORE
-    midpoint = df.height // 2
-    first_half = df.slice(0, midpoint)
-    second_half = df.slice(midpoint)
-
-    stable = []
-    for result in results:
-        col_a = result["entity_a"]
-        col_b = result["entity_b"]
-        lag = result["lag_days"]
-
-        # Check first half
-        r1 = _quick_correlation(first_half, col_a, col_b, lag)
-        # Check second half
-        r2 = _quick_correlation(second_half, col_a, col_b, lag)
-
-        if r1 is not None and r2 is not None:
-            if abs(r1) >= min_strength and abs(r2) >= min_strength:
-                result["stability_score"] = min(abs(r1), abs(r2))
-                stable.append(result)
-            else:
-                logger.debug(
-                    "Stability filter removed %s vs %s (lag %d): "
-                    "half1=%.3f, half2=%.3f",
-                    col_a, col_b, lag, r1, r2,
-                )
-        else:
-            logger.debug(
-                "Stability filter removed %s vs %s (lag %d): "
-                "not enough data in one half",
-                col_a, col_b, lag,
-            )
-
-    return stable
-
-
-def _quick_correlation(
-    df: pl.DataFrame,
-    col_a: str,
-    col_b: str,
-    lag: int,
-) -> float | None:
-    """Calculate a quick Pearson r for a pair in a DataFrame subset.
-
-    Returns None if not enough data or zero variance.
-    """
-    series_a = df[col_a]
-    series_b = df[col_b].shift(lag) if lag > 0 else df[col_b]
-
-    pair_df = pl.DataFrame({"a": series_a, "b": series_b}).drop_nulls()
-
-    # Need at least 20 points in each half to be meaningful
-    if pair_df.height < 20:
-        return None
-
-    a_arr = pair_df["a"].to_numpy()
-    b_arr = pair_df["b"].to_numpy()
-
-    if np.std(a_arr) < 1e-10 or np.std(b_arr) < 1e-10:
-        return None
-
-    r, _ = stats.pearsonr(a_arr, b_arr)
-    return r if not math.isnan(r) else None
-
-
-# ─── Step 8: Build candidates ────────────────────────────────────────
+# ─── Step 10: Build candidates ───────────────────────────────────────
 
 
 def _build_candidates(
@@ -822,7 +497,7 @@ def _build_candidates(
     return candidates
 
 
-# ─── Step 9: Store in Neo4j ──────────────────────────────────────────
+# ─── Step 11: Store in Neo4j ─────────────────────────────────────────
 
 
 def _clear_old_candidates(graph: GraphStorage, window_days: int) -> int:
@@ -884,297 +559,3 @@ def _store_candidates_batch(
 
     result = graph.run_query(query, {"batch": batch})
     return result[0]["stored"] if result else 0
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Monthly FRED Pipeline — separate from the daily correlation engine
-# ═══════════════════════════════════════════════════════════════════════
-
-
-# FRED indicators that update monthly or quarterly (not daily/weekly).
-# These need to be correlated at monthly frequency, not daily.
-MONTHLY_INDICATORS: set[str] = {
-    series_id
-    for series_id, meta in FRED_INDICATORS.items()
-    if meta["frequency"] in ("monthly", "quarterly", "weekly")
-}
-
-# Minimum months of overlapping data to trust a correlation
-MIN_MONTHLY_OBSERVATIONS = 10
-
-
-def run_monthly_correlation_pipeline(
-    db: PostgresStorage,
-    graph: GraphStorage,
-) -> CorrelationRunSummary:
-    """Correlate monthly FRED indicators with monthly stock returns.
-
-    The daily pipeline can't handle monthly data because forward-filling
-    monthly values to daily creates 20 zeros and 1 jump per month.
-    Instead, we downsample daily stock prices to monthly returns and
-    correlate directly against monthly indicator changes.
-
-    Uses Spearman (rank correlation) because monthly data has heavy
-    tails and small sample sizes where Pearson is unreliable.
-    """
-    start_time = time.monotonic()
-    window_end = pendulum.now("UTC")
-    window_start = window_end.subtract(years=1)
-
-    logger.info(
-        "Starting monthly FRED pipeline (%s to %s)",
-        window_start.to_date_string(),
-        window_end.to_date_string(),
-    )
-
-    # Fetch all data
-    raw_rows = db.get_all_market_data_range(
-        start=window_start, end=window_end
-    )
-    if not raw_rows:
-        logger.warning("No data for monthly pipeline")
-        return _empty_summary(0, window_end, start_time)
-
-    # Separate asset prices from indicator values
-    asset_rows = []
-    indicator_rows = []
-    for row in raw_rows:
-        if row["entity_type"] == "asset":
-            asset_rows.append(row)
-        elif row["entity_id"] in MONTHLY_INDICATORS:
-            indicator_rows.append(row)
-
-    if not asset_rows or not indicator_rows:
-        logger.warning("Missing asset or indicator data for monthly pipeline")
-        return _empty_summary(0, window_end, start_time)
-
-    # Build monthly stock returns
-    monthly_returns = _build_monthly_returns(asset_rows)
-    logger.info(
-        "Built monthly returns: %d assets, %d months",
-        len(monthly_returns.columns) - 1,
-        len(monthly_returns),
-    )
-
-    # Build monthly indicator changes
-    monthly_indicators = _build_monthly_indicator_changes(indicator_rows)
-    logger.info(
-        "Built monthly indicator changes: %d indicators, %d months",
-        len(monthly_indicators.columns) - 1,
-        len(monthly_indicators),
-    )
-
-    # Correlate each indicator against each asset using Spearman
-    results = _correlate_monthly(monthly_returns, monthly_indicators)
-    logger.info(
-        "Found %d monthly correlations above threshold", len(results)
-    )
-
-    if not results:
-        total = (len(monthly_returns.columns) - 1) * (
-            len(monthly_indicators.columns) - 1
-        )
-        return _empty_summary(total, window_end, start_time)
-
-    # FDR correction
-    surviving = _apply_fdr_correction(results)
-    logger.info(
-        "%d monthly correlations survived FDR", len(surviving)
-    )
-
-    # Build candidates (window_days=30 marks these as monthly)
-    candidates = _build_candidates(surviving, 30, window_end)
-    logger.info("Built %d monthly candidates", len(candidates))
-
-    # Store — window_days=30 marks these as monthly frequency
-    cleared = _clear_old_candidates(graph, 30)
-    logger.info("Cleared %d old monthly candidates", cleared)
-
-    stored = _store_candidates_batch(graph, candidates)
-    logger.info("Stored %d monthly candidates in Neo4j", stored)
-
-    duration = time.monotonic() - start_time
-    total = (len(monthly_returns.columns) - 1) * (
-        len(monthly_indicators.columns) - 1
-    )
-
-    summary = CorrelationRunSummary(
-        total_pairs_tested=total,
-        pairs_above_threshold=len(results),
-        pairs_surviving_fdr=len(surviving),
-        relationships_stored=stored,
-        window_days=30,
-        window_end=window_end,
-        duration_seconds=round(duration, 2),
-    )
-
-    logger.info(
-        "Monthly pipeline complete in %.1fs: %d pairs tested, %d stored",
-        duration, total, stored,
-    )
-    return summary
-
-
-def _empty_summary(
-    total: int,
-    window_end: pendulum.DateTime,
-    start_time: float,
-) -> CorrelationRunSummary:
-    """Return an empty summary for early exits."""
-    return CorrelationRunSummary(
-        total_pairs_tested=total,
-        pairs_above_threshold=0,
-        pairs_surviving_fdr=0,
-        relationships_stored=0,
-        window_days=30,
-        window_end=window_end,
-        duration_seconds=time.monotonic() - start_time,
-    )
-
-
-def _build_monthly_returns(asset_rows: list[dict]) -> pl.DataFrame:
-    """Downsample daily asset prices to monthly returns.
-
-    Takes the last price in each month and computes the return:
-    (this month's last price / last month's last price) - 1
-    """
-    records = []
-    for row in asset_rows:
-        ts = row["timestamp"]
-        records.append({
-            "date": ts.date() if hasattr(ts, "date") else ts,
-            "entity_key": f"asset:{row['entity_id']}",
-            "value": float(row["value"]),
-        })
-
-    df = pl.DataFrame(records)
-
-    # Take last price per entity per month
-    df = df.with_columns(
-        pl.col("date").cast(pl.Date).dt.truncate("1mo").alias("month")
-    )
-    monthly = (
-        df.group_by(["month", "entity_key"])
-        .agg(pl.col("value").last())
-        .sort(["entity_key", "month"])
-    )
-
-    # Pivot to wide: months as rows, entities as columns
-    wide = monthly.pivot(
-        on="entity_key", index="month", values="value"
-    ).sort("month")
-
-    # Compute monthly returns: (this month / last month) - 1
-    entity_cols = [c for c in wide.columns if c != "month"]
-    return_cols = {"month": wide["month"]}
-    for col in entity_cols:
-        shifted = wide[col].shift(1)
-        returns = (wide[col] - shifted) / shifted.replace(0, None)
-        return_cols[col] = returns
-
-    result = pl.DataFrame(return_cols)
-    return result.slice(1)  # Drop first row (NaN from shift)
-
-
-def _build_monthly_indicator_changes(
-    indicator_rows: list[dict],
-) -> pl.DataFrame:
-    """Build monthly first-differences for FRED indicators.
-
-    For each indicator, takes the value at each month and computes
-    the change from the prior month. This captures whether the
-    indicator is getting better or worse.
-    """
-    records = []
-    for row in indicator_rows:
-        ts = row["timestamp"]
-        records.append({
-            "date": ts.date() if hasattr(ts, "date") else ts,
-            "entity_key": f"indicator:{row['entity_id']}",
-            "value": float(row["value"]),
-        })
-
-    df = pl.DataFrame(records)
-
-    # Take last value per indicator per month
-    df = df.with_columns(
-        pl.col("date").cast(pl.Date).dt.truncate("1mo").alias("month")
-    )
-    monthly = (
-        df.group_by(["month", "entity_key"])
-        .agg(pl.col("value").last())
-        .sort(["entity_key", "month"])
-    )
-
-    # Pivot to wide
-    wide = monthly.pivot(
-        on="entity_key", index="month", values="value"
-    ).sort("month")
-
-    # First differences: this month - last month
-    entity_cols = [c for c in wide.columns if c != "month"]
-    diff_cols = {"month": wide["month"]}
-    for col in entity_cols:
-        diff_cols[col] = wide[col].diff()
-
-    result = pl.DataFrame(diff_cols)
-    return result.slice(1)
-
-
-def _correlate_monthly(
-    returns_df: pl.DataFrame,
-    indicators_df: pl.DataFrame,
-) -> list[dict]:
-    """Correlate monthly stock returns against monthly indicator changes.
-
-    Uses Spearman rank correlation — more robust than Pearson for
-    small sample sizes and non-normal distributions (which monthly
-    data always has).
-    """
-    min_strength = settings.CORRELATION_TIER_STORE_MONTHLY
-
-    # Join on month
-    joined = returns_df.join(indicators_df, on="month", how="inner")
-
-    if len(joined) < MIN_MONTHLY_OBSERVATIONS:
-        logger.warning(
-            "Only %d overlapping months (need %d)",
-            len(joined), MIN_MONTHLY_OBSERVATIONS,
-        )
-        return []
-
-    asset_cols = [c for c in returns_df.columns if c != "month"]
-    indicator_cols = [c for c in indicators_df.columns if c != "month"]
-
-    results = []
-
-    for asset_col in asset_cols:
-        for ind_col in indicator_cols:
-            pair = joined.select([asset_col, ind_col]).drop_nulls()
-
-            if pair.height < MIN_MONTHLY_OBSERVATIONS:
-                continue
-
-            a = pair[asset_col].to_numpy()
-            b = pair[ind_col].to_numpy()
-
-            if np.std(a) < 1e-10 or np.std(b) < 1e-10:
-                continue
-
-            # Spearman rank correlation
-            r, p = stats.spearmanr(a, b)
-
-            if math.isnan(r) or abs(r) < min_strength:
-                continue
-
-            results.append({
-                "entity_a": asset_col,
-                "entity_b": ind_col,
-                "lag_days": 0,
-                "pearson_r": float(r),  # Actually Spearman, but same field
-                "pearson_p": float(p),
-                "observation_count": pair.height,
-                "method": "spearman",
-            })
-
-    return results

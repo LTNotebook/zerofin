@@ -1178,6 +1178,13 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Supply chain diversification beneficiary; manufacturing growth",
         "metadata": {},
     },
+    {
+        "id": "NETHERLANDS",
+        "label": "Country",
+        "name": "Netherlands",
+        "description": "ASML headquarters; key node in global semiconductor supply chain",
+        "metadata": {},
+    },
 ]
 
 
@@ -1277,7 +1284,7 @@ STRUCTURAL_RELATIONSHIPS: list[tuple[str, str, str, str, str, dict]] = [
     ("Asset", "EWY", "Country", "SOUTH_KOREA", "LOCATED_IN", {"source": "seed"}),
     # TSM is headquartered in Taiwan
     ("Company", "TSM", "Country", "TAIWAN", "LOCATED_IN", {"source": "seed"}),
-    ("Company", "ASML", "Country", "GERMANY", "LOCATED_IN", {"source": "seed"}),
+    ("Company", "ASML", "Country", "NETHERLANDS", "LOCATED_IN", {"source": "seed"}),
     # ── DEPENDS_ON: Key supply chain dependencies ──────────────────────
     # NVIDIA, AMD, Apple all depend on TSMC to fabricate their chips
     (
@@ -1413,30 +1420,22 @@ def main() -> None:
             total_entities += count
             logger.info("  %s: %d entities", label, count)
 
-        # ── Create structural relationships ────────────────────────────
-        total_relationships = 0
-        relationship_failures = 0
-
+        # ── Batch create structural relationships ─────────────────────
+        relationship_batch = []
         for from_label, from_id, to_label, to_id, rel_type, props in STRUCTURAL_RELATIONSHIPS:
-            result = graph.create_relationship(
-                from_label=from_label,
-                from_id=from_id,
-                to_label=to_label,
-                to_id=to_id,
-                relationship_type=rel_type,
-                properties=props,
-            )
-            if result:
-                total_relationships += 1
-            else:
-                relationship_failures += 1
+            relationship_batch.append({
+                "from_id": from_id,
+                "to_id": to_id,
+                "rel_type": rel_type,
+                "props": props,
+            })
+
+        total_relationships = graph.create_relationships_batch(relationship_batch)
 
         # ── Summary ────────────────────────────────────────────────────
         logger.info("Seed complete!")
         logger.info("  Entities created/updated:      %d", total_entities)
         logger.info("  Relationships created/updated:  %d", total_relationships)
-        if relationship_failures > 0:
-            logger.warning("  Relationship failures:          %d", relationship_failures)
 
 
 if __name__ == "__main__":

@@ -11,11 +11,14 @@ Run with:
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
+import math
+from decimal import Decimal, InvalidOperation
 
 import pendulum
-import yfinance as yf
+import yfinance
+from pydantic import ValidationError
 
+from zerofin.models.entities import DataPointCreate
 from zerofin.storage.postgres import PostgresStorage
 
 logging.basicConfig(
@@ -30,6 +33,9 @@ MISSING_TICKERS = [
     "SLB", "XLP", "VXUS", "KSA", "^W5000", "^IRX",
 ]
 
+# Standard price precision (4 decimal places)
+PRICE_DECIMAL_PLACES = Decimal("0.0001")
+
 
 def main() -> None:
     """Download and store missing tickers one at a time."""
@@ -41,7 +47,7 @@ def main() -> None:
 
         for ticker in MISSING_TICKERS:
             try:
-                data = yf.download(ticker, period="3y", progress=False)
+                data = yfinance.download(ticker, period="3y", progress=False)
 
                 # Flatten MultiIndex columns if present (yfinance quirk)
                 if hasattr(data.columns, "levels"):
@@ -56,18 +62,40 @@ def main() -> None:
                 for date, row in data.iterrows():
                     close = row.get("Close")
 
-                    if close is not None and not (float(close) != float(close)):
-                        ts = pendulum.instance(date.to_pydatetime())
+                    if close is None or (isinstance(close, float) and math.isnan(close)):
+                        continue
+
+                    try:
+                        timestamp = pendulum.instance(date.to_pydatetime())
+                        close_decimal = Decimal(str(close)).quantize(PRICE_DECIMAL_PLACES)
+
+                        # Validate through Pydantic before storing
+                        DataPointCreate(
+                            entity_type="asset",
+                            entity_id=ticker,
+                            metric="close_price",
+                            value=close_decimal,
+                            timestamp=timestamp,
+                            source="yfinance",
+                            unit="USD",
+                        )
+
                         db.insert_data_point(
                             entity_type="asset",
                             entity_id=ticker,
                             metric="close_price",
-                            value=Decimal(str(round(float(close), 4))),
-                            timestamp=ts,
+                            value=close_decimal,
+                            timestamp=timestamp,
                             source="yfinance",
                             unit="USD",
                         )
                         stored += 1
+
+                    except (InvalidOperation, ValidationError) as error:
+                        logger.warning(
+                            "Validation failed for %s on %s: %s",
+                            ticker, date, error,
+                        )
 
                 logger.info("%s: stored %d data points", ticker, stored)
                 total_stored += stored

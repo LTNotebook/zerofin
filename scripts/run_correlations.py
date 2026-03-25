@@ -17,10 +17,8 @@ from __future__ import annotations
 import logging
 import sys
 
-from zerofin.analysis.correlations import (
-    run_correlation_pipeline,
-    run_monthly_correlation_pipeline,
-)
+from zerofin.analysis.correlations import run_correlation_pipeline
+from zerofin.analysis.monthly import run_monthly_correlation_pipeline
 from zerofin.config import settings
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage

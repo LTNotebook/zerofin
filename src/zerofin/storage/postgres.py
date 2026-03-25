@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 from types import TracebackType
+from typing import Any
 
 import pendulum
 import psycopg
@@ -24,6 +25,10 @@ from zerofin.config import settings
 # Set up logger — every module gets its own logger named after the module path.
 # This way log messages automatically show which file they came from.
 logger = logging.getLogger(__name__)
+
+# Metric excluded from bulk correlation queries — volume data adds noise
+# to price-based correlation analysis and should be skipped.
+EXCLUDED_CORRELATION_METRIC = "volume"
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +316,7 @@ class PostgresStorage:
         entity_id: str,
         metric: str,
         limit: int = 30,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get the most recent data points for a specific entity and metric.
 
         Returns rows newest-first. Each row is a dict with keys matching
@@ -356,7 +361,7 @@ class PostgresStorage:
         metric: str,
         start: pendulum.DateTime,
         end: pendulum.DateTime,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get all data points for an entity/metric within a date range.
 
         Returns rows in chronological order (oldest first), which is the
@@ -401,7 +406,7 @@ class PostgresStorage:
         *,
         start: pendulum.DateTime,
         end: pendulum.DateTime,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get ALL data points across ALL entities within a date range.
 
         Unlike get_market_data_range() which fetches one entity at a time,
@@ -426,12 +431,16 @@ class PostgresStorage:
             FROM market_data
             WHERE timestamp >= %(start)s
               AND timestamp <= %(end)s
-              AND metric != 'volume'
+              AND metric != %(excluded_metric)s
             ORDER BY entity_type, entity_id, timestamp ASC;
         """
 
         with self._conn.cursor() as cursor:
-            cursor.execute(query, {"start": start, "end": end})
+            cursor.execute(query, {
+                "start": start,
+                "end": end,
+                "excluded_metric": EXCLUDED_CORRELATION_METRIC,
+            })
             rows = cursor.fetchall()
 
         logger.info("Loaded %d data points across all entities", len(rows))
@@ -441,7 +450,9 @@ class PostgresStorage:
     # Generic query execution
     # ------------------------------------------------------------------
 
-    def execute_query(self, query: str, params: dict | None = None) -> list[dict]:
+    def execute_query(
+        self, query: str, params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Run an arbitrary SQL query and return results as a list of dicts.
 
         Use this for one-off queries in scripts or exploratory work where
@@ -487,11 +498,14 @@ class PostgresStorage:
             # as passing no params at all, so no special-casing needed here.
             cursor.execute(query, params)
 
-            # For SELECT (and RETURNING clauses on writes), fetch all rows.
+            # For SELECT and RETURNING clauses, fetch all rows.
             # For everything else, commit the transaction and return nothing.
-            if query_type == "SELECT":
+            has_returning = "RETURNING" in query.upper()
+            if query_type == "SELECT" or has_returning:
                 rows: list[dict] = cursor.fetchall()
                 logger.debug("execute_query() returned %d row(s)", len(rows))
+                if has_returning:
+                    self._conn.commit()
                 return rows
 
         # Non-SELECT path — commit so the write is persisted.

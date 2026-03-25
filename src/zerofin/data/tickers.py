@@ -254,6 +254,36 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "COST":  {"sector": "XLP"},
     "PG":    {"sector": "XLP"},
     "KO":    {"sector": "XLP"},
+    # Energy Services
+    "SLB":   {"sector": "XLE"},
+    # Consumer Discretionary
+    "NKE":   {"sector": "XLY"},
+    # Industrials
+    "CAT":   {"sector": "XLI"},
+    "GE":    {"sector": "XLI"},
+    "HON":   {"sector": "XLI"},
+    "DE":    {"sector": "XLI"},
+    "UNP":   {"sector": "XLI"},
+    "VRT":   {"sector": "XLI"},
+    "ETN":   {"sector": "XLI"},
+    # Technology / Software
+    "CRM":   {"sector": "XLK"},
+    "PLTR":  {"sector": "XLK"},
+    "NOW":   {"sector": "XLK"},
+    "SNOW":  {"sector": "XLK"},
+    "ORCL":  {"sector": "XLK"},
+    "ANET":  {"sector": "XLK"},
+    "MRVL":  {"sector": "XLK", "sub_sector": "SMH"},
+    "TTD":   {"sector": "XLK"},
+    # Communication Services
+    "NFLX":  {"sector": "XLC"},
+    "DIS":   {"sector": "XLC"},
+    "VZ":    {"sector": "XLC"},
+    # Financials
+    "KKR":   {"sector": "XLF"},
+    "COIN":  {"sector": "XLF"},
+    # Utilities
+    "CEG":   {"sector": "XLU"},
 }
 
 

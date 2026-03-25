@@ -12,8 +12,12 @@ Two models:
 
 from __future__ import annotations
 
+from typing import Any
+
 import pendulum
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from zerofin.config import settings
 
 # Which tier does this correlation fall into?
 # These match the thresholds in config.py
@@ -117,10 +121,10 @@ class CorrelationCandidate(BaseModel):
         # Direction from the sign
         self.direction = "positive" if self.correlation >= 0 else "negative"
 
-        # Tier based on strength thresholds (from config defaults)
-        if self.strength >= 0.7:
+        # Tier based on strength thresholds from config
+        if self.strength >= settings.CORRELATION_TIER_STRONG:
             self.tier = TIER_STRONG
-        elif self.strength >= 0.5:
+        elif self.strength >= settings.CORRELATION_TIER_ACTIONABLE:
             self.tier = TIER_ACTIONABLE
         else:
             self.tier = TIER_STORE
@@ -134,7 +138,7 @@ class CorrelationCandidate(BaseModel):
             raise ValueError("entity_a_id and entity_b_id must be different")
         return self
 
-    def to_neo4j_properties(self) -> dict:
+    def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert to a flat dict ready for Neo4j relationship properties.
 
         This is what gets stored on the CORRELATES_WITH edge between
@@ -151,7 +155,7 @@ class CorrelationCandidate(BaseModel):
             "observation_count": self.observation_count,
             "window_days": self.window_days,
             "window_end": self.window_end.to_iso8601_string(),
-            "confidence": 0.5,        # Starts neutral — validation raises or lowers it
+            "confidence": settings.CORRELATION_INITIAL_CONFIDENCE,
             "source": "statistical",
             "status": "candidate",
             "times_tested": 0,

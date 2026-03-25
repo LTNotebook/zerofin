@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     CORRELATION_MIN_OBSERVATIONS_RATIO: float = 0.75
 
     # Tiered strength thresholds
-    CORRELATION_TIER_STORE: float = 0.6       # Minimum for daily windows (63/252 day)
-    CORRELATION_TIER_STORE_MONTHLY: float = 0.8  # Higher bar for monthly (less data, noisier)
+    CORRELATION_TIER_STORE: float = 0.5       # Minimum for daily windows (63/252 day)
+    CORRELATION_TIER_STORE_MONTHLY: float = 0.5  # Stability filter handles quality control
     CORRELATION_TIER_ACTIONABLE: float = 0.5  # Moderate, use in analysis
     CORRELATION_TIER_STRONG: float = 0.7      # High-confidence
 
@@ -70,6 +70,10 @@ class Settings(BaseSettings):
 
     # Run Spearman alongside Pearson as a sanity check
     CORRELATION_SPEARMAN_CHECK: bool = True
+
+    # Starting confidence for newly discovered correlations.
+    # Starts neutral at 0.5 — validation raises or lowers it.
+    CORRELATION_INITIAL_CONFIDENCE: float = 0.5
 
     model_config = {
         "env_file": str(PROJECT_ROOT / ".env"),

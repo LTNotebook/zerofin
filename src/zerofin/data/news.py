@@ -26,9 +26,9 @@ from __future__ import annotations
 import html
 import logging
 import re
-import xml.etree.ElementTree as ET
 from typing import Any
 
+import defusedxml.ElementTree as ET
 import httpx
 import pendulum
 
@@ -695,12 +695,15 @@ class NewsCollector(BaseCollector):
 
         cutoff_date = pendulum.now("UTC").subtract(days=MAX_ARTICLE_AGE_DAYS)
         skipped_old = 0
-        skipped_noise = 0
+        skipped_invalid = 0
         skipped_duplicate = 0
 
         for article in raw_articles:
             url = article.get("link")
-            if not url or url in existing_urls:
+            if not url:
+                skipped_invalid += 1
+                continue
+            if url in existing_urls:
                 skipped_duplicate += 1
                 continue
 
@@ -735,11 +738,11 @@ class NewsCollector(BaseCollector):
 
         if not new_articles:
             logger.info(
-                "No new articles from '%s' (dupes: %d, old: %d, noise: %d)",
+                "No new articles from '%s' (dupes: %d, old: %d, invalid: %d)",
                 feed_name,
                 skipped_duplicate,
                 skipped_old,
-                skipped_noise,
+                skipped_invalid,
             )
             return {
                 "feed": feed_name,
@@ -747,7 +750,7 @@ class NewsCollector(BaseCollector):
                 "failed": 0,
                 "duplicates": skipped_duplicate,
                 "old": skipped_old,
-                "noise": skipped_noise,
+                "invalid": skipped_invalid,
             }
 
         # ── Step 5: Store new articles in Neo4j ───────────────────────
@@ -762,17 +765,17 @@ class NewsCollector(BaseCollector):
                 "failed": len(new_articles),
                 "duplicates": skipped_duplicate,
                 "old": skipped_old,
-                "noise": skipped_noise,
+                "invalid": skipped_invalid,
                 "error": "store_failed",
             }
 
         logger.info(
-            "Feed '%s': %d new, %d dupes, %d old, %d noise",
+            "Feed '%s': %d new, %d dupes, %d old, %d invalid",
             feed_name,
             stored,
             skipped_duplicate,
             skipped_old,
-            skipped_noise,
+            skipped_invalid,
         )
 
         return {
@@ -781,7 +784,7 @@ class NewsCollector(BaseCollector):
             "failed": 0,
             "duplicates": skipped_duplicate,
             "old": skipped_old,
-            "noise": skipped_noise,
+            "invalid": skipped_invalid,
         }
 
     def _fetch_feed(self, url: str, feed_name: str) -> str | None:

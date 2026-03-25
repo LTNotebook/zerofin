@@ -22,6 +22,7 @@ for our own analysis — that's what Polars is for later.
 from __future__ import annotations
 
 import logging
+import math
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -106,8 +107,7 @@ def _parse_batch_row(
     # Convert the float from pandas to Decimal for financial precision.
     # Floats can't represent 0.10 exactly, but Decimal can.
     try:
-        # pandas NaN fails the `!= itself` check — that's how NaN works
-        if close_value != close_value:
+        if isinstance(close_value, float) and math.isnan(close_value):
             logger.debug("Close price is NaN for %s on %s — skipping", ticker, date_index)
         else:
             # Round to the standard price precision defined at the top of this file
@@ -136,7 +136,7 @@ def _parse_batch_row(
     # Volume is the number of shares traded. It's always a whole number,
     # but we still store it as Decimal for consistency with the data model.
     try:
-        if volume_value != volume_value:
+        if isinstance(volume_value, float) and math.isnan(volume_value):
             logger.debug("Volume is NaN for %s on %s — skipping", ticker, date_index)
         else:
             # Volume is an integer, no decimal places needed
@@ -193,7 +193,7 @@ class PriceCollector(BaseCollector):
         # Collect today's prices for the default tickers
         collector = PriceCollector()
         result = collector.collect_latest()
-        print(result)  # {"collector": "prices", "stored": 10, "failed": 0, ...}
+        logger.info(result)  # {"collector": "prices", "stored": 10, "failed": 0, ...}
 
         # Collect 1 year of history for custom tickers
         collector = PriceCollector(tickers=["AAPL", "MSFT", "GOOG"])
