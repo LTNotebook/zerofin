@@ -324,3 +324,156 @@ def _magnitude_stable(
 
     min_half = min(abs(r1), abs(r2))
     return min_half >= threshold * abs(r_full)
+
+
+# ─── Gate 2: Entity type plausibility filter ─────────────────────────
+
+# Entity categories for the pairing matrix.
+# Each entity gets classified into one of these categories based on
+# its entity_type (asset/indicator) and its specific characteristics.
+
+FRED_CATEGORY_MAP: dict[str, str] = {
+    # Labor market
+    "PAYEMS": "fred_labor", "UNRATE": "fred_labor", "ICSA": "fred_labor",
+    "CCSA": "fred_labor", "JTSJOL": "fred_labor",
+    "CES0500000003": "fred_labor", "CIVPART": "fred_labor",
+    "U6RATE": "fred_labor", "AWHMAN": "fred_labor",
+    # Housing
+    "HOUST": "fred_housing", "PERMIT": "fred_housing",
+    "EXHOSLUSM495S": "fred_housing", "CSUSHPINSA": "fred_housing",
+    "MORTGAGE30US": "fred_housing",
+    # Consumer / inflation
+    "CPIAUCSL": "fred_consumer", "CPILFESL": "fred_consumer",
+    "CPIAUCNS": "fred_consumer", "PCEPI": "fred_consumer",
+    "PCEPILFE": "fred_consumer", "PPIFIS": "fred_consumer",
+    "UMCSENT": "fred_consumer", "PI": "fred_consumer",
+    "PSAVERT": "fred_consumer", "PCE": "fred_consumer",
+    # Growth / output
+    "GDPC1": "fred_growth", "INDPRO": "fred_growth",
+    "RSAFS": "fred_growth", "RSXFS": "fred_growth",
+    "DGORDER": "fred_growth", "CPGDPAI": "fred_growth",
+    "NEWORDER": "fred_growth", "AMTMNO": "fred_growth",
+    # Credit / financial conditions
+    "BAMLH0A0HYM2": "fred_credit", "BAMLC0A0CM": "fred_credit",
+    "BAMLH0A0HYM2EY": "fred_credit",
+    "CFNAI": "fred_credit", "STLFSI2": "fred_credit",
+    "NFCI": "fred_credit", "ANFCI": "fred_credit",
+    "SAHMCURRENT": "fred_credit",
+    # Rates / yield curve
+    "DFF": "fred_rates", "DGS2": "fred_rates", "DGS5": "fred_rates",
+    "DGS10": "fred_rates", "DGS30": "fred_rates",
+    "DGS3MO": "fred_rates", "DFEDTARU": "fred_rates",
+    "DFEDTARL": "fred_rates", "SOFR": "fred_rates",
+    "T10Y2Y": "fred_rates", "T10Y3M": "fred_rates",
+    "T10YFF": "fred_rates",
+    "T5YIE": "fred_rates", "T10YIE": "fred_rates",
+    # Money supply
+    "M2SL": "fred_money", "M2V": "fred_money",
+    "WALCL": "fred_money", "RRPONTSYD": "fred_money",
+    # Trade / dollar
+    "BOPGSTB": "fred_trade", "DTWEXBGS": "fred_trade",
+    "DTWEXAFEGS": "fred_trade",
+}
+
+# Asset categories based on ticker characteristics
+ASSET_CATEGORY_PREFIXES: dict[str, str] = {
+    # Commodities
+    "CL=F": "commodity_energy", "BZ=F": "commodity_energy",
+    "NG=F": "commodity_energy",
+    "GC=F": "commodity_metal", "SI=F": "commodity_metal",
+    "HG=F": "commodity_metal",
+    "ZC=F": "commodity_ag", "ZW=F": "commodity_ag",
+    "ZS=F": "commodity_ag",
+    # Commodity ETFs
+    "GLD": "commodity_metal", "URA": "commodity_energy",
+    "DBA": "commodity_ag", "DBC": "commodity_broad",
+    "LIT": "commodity_metal",
+    # Crypto
+    "BTC-USD": "crypto", "ETH-USD": "crypto", "SOL-USD": "crypto",
+    # Bond ETFs
+    "TLT": "bond_etf", "SHY": "bond_etf", "IEF": "bond_etf",
+    "HYG": "bond_etf", "LQD": "bond_etf", "AGG": "bond_etf",
+    "TIP": "bond_etf", "EMLC": "bond_etf",
+    # International ETFs
+    "IEFA": "intl_etf", "VEA": "intl_etf", "IEMG": "intl_etf",
+    "EEM": "intl_etf", "EMXC": "intl_etf", "VXUS": "intl_etf",
+    "EWJ": "intl_etf", "FXI": "intl_etf", "KWEB": "intl_etf",
+    "INDA": "intl_etf", "EWG": "intl_etf", "VNM": "intl_etf",
+    "KSA": "intl_etf", "EWZ": "intl_etf", "EWT": "intl_etf",
+    "EWY": "intl_etf",
+    # Yield indices
+    "^TNX": "yield_index", "^TYX": "yield_index",
+    "^FVX": "yield_index", "^IRX": "yield_index",
+    # Volatility
+    "^VIX": "volatility",
+    # US indices
+    "^GSPC": "us_index", "^DJI": "us_index", "^IXIC": "us_index",
+    "^NDX": "us_index", "^RUT": "us_index", "^W5000": "us_index",
+    "^GSPTSE": "us_index",
+}
+
+# A = Allowed, R = Review (passes but flagged), B = Blocked
+# Pairs not in this matrix default to "A" (allowed)
+BLOCKED_PAIRS: set[tuple[str, str]] = {
+    # Housing indicators don't relate to international ETFs
+    ("fred_housing", "intl_etf"),
+    # Housing indicators don't relate to commodities (except metals)
+    ("fred_housing", "commodity_ag"),
+    ("fred_housing", "commodity_energy"),
+    ("fred_housing", "commodity_broad"),
+    ("fred_housing", "crypto"),
+    # Labor indicators don't relate to international ETFs
+    ("fred_labor", "intl_etf"),
+    # Labor indicators don't relate to commodities
+    ("fred_labor", "commodity_ag"),
+    ("fred_labor", "commodity_energy"),
+    ("fred_labor", "commodity_metal"),
+    ("fred_labor", "commodity_broad"),
+    ("fred_labor", "crypto"),
+    # Trade/dollar don't relate to individual commodities
+    ("fred_trade", "commodity_ag"),
+    # Money supply doesn't relate to ag commodities
+    ("fred_money", "commodity_ag"),
+    # Growth indicators don't relate to crypto
+    ("fred_growth", "crypto"),
+}
+
+
+def classify_entity(entity_key: str) -> str:
+    """Classify an entity into a category for the pairing matrix.
+
+    Takes an entity key like 'asset:NVDA' or 'indicator:CPIAUCSL'
+    and returns a category string like 'equity', 'fred_housing', etc.
+    """
+    entity_type, entity_id = entity_key.split(":", 1)
+
+    if entity_type == "indicator":
+        return FRED_CATEGORY_MAP.get(entity_id, "fred_other")
+
+    # Asset type — check specific tickers first
+    if entity_id in ASSET_CATEGORY_PREFIXES:
+        return ASSET_CATEGORY_PREFIXES[entity_id]
+
+    # Default: it's an equity (stock or sector ETF)
+    return "equity"
+
+
+def is_pair_plausible(entity_a: str, entity_b: str) -> bool:
+    """Check if two entities can have a plausible economic relationship.
+
+    Uses entity type categories to block pairs that have no
+    conceivable transmission channel. Returns True if allowed,
+    False if blocked.
+
+    This is Gate 2 from the plausibility filtering research.
+    """
+    cat_a = classify_entity(entity_a)
+    cat_b = classify_entity(entity_b)
+
+    # Check both orderings since the set contains tuples
+    if (cat_a, cat_b) in BLOCKED_PAIRS:
+        return False
+    if (cat_b, cat_a) in BLOCKED_PAIRS:
+        return False
+
+    return True

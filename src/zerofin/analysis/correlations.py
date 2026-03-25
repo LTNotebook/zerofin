@@ -36,7 +36,11 @@ import pendulum
 import polars as pl
 from scipy import stats
 
-from zerofin.analysis.filters import _apply_fdr_correction, _apply_stability_filter
+from zerofin.analysis.filters import (
+    _apply_fdr_correction,
+    _apply_stability_filter,
+    is_pair_plausible,
+)
 from zerofin.analysis.transforms import (
     MIN_VARIANCE,
     _compute_transforms,
@@ -385,6 +389,10 @@ def _compute_pairwise_correlations(
             group_a = REDUNDANCY_LOOKUP.get(id_a)
             group_b = REDUNDANCY_LOOKUP.get(id_b)
             if group_a and group_b and group_a == group_b:
+                continue
+
+            # Gate 2: Skip economically implausible pairs
+            if not is_pair_plausible(col_a, col_b):
                 continue
 
             # Determine which lags to check for this pair

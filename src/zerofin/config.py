@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Tiered strength thresholds
     CORRELATION_TIER_STORE: float = 0.5       # Minimum for daily windows (63/252 day)
-    CORRELATION_TIER_STORE_MONTHLY: float = 0.5  # Stability filter handles quality control
+    CORRELATION_TIER_STORE_MONTHLY: float = 0.5  # Stability filter + Gate 2 handle quality
     CORRELATION_TIER_ACTIONABLE: float = 0.5  # Moderate, use in analysis
     CORRELATION_TIER_STRONG: float = 0.7      # High-confidence
 

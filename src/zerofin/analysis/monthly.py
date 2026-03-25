@@ -23,7 +23,11 @@ from zerofin.analysis.correlations import (
     _clear_old_candidates,
     _store_candidates_batch,
 )
-from zerofin.analysis.filters import _apply_fdr_correction, apply_monthly_stability_filter
+from zerofin.analysis.filters import (
+    _apply_fdr_correction,
+    apply_monthly_stability_filter,
+    is_pair_plausible,
+)
 from zerofin.config import settings
 from zerofin.data.tickers import NON_DAILY_INDICATORS
 from zerofin.models.correlations import CorrelationRunSummary
@@ -313,6 +317,10 @@ def _correlate_monthly(
 
     for asset_col in asset_cols:
         for ind_col in indicator_cols:
+            # Gate 2: Check if this entity type pairing makes sense
+            if not is_pair_plausible(asset_col, ind_col):
+                continue
+
             pair = joined.select([asset_col, ind_col]).drop_nulls()
 
             if pair.height < MIN_MONTHLY_OBSERVATIONS:
