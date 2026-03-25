@@ -341,6 +341,8 @@ for group_name, group_info in REDUNDANCY_GROUPS.items():
         REDUNDANCY_LOOKUP[member] = group_name
 
 
+
+
 # All yfinance tickers combined (deduplicated, order preserved)
 ALL_TICKERS: list[str] = list(
     dict.fromkeys(
@@ -940,4 +942,18 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "frequency": "daily",
         "category": "yield_curve",
     },
+}
+
+
+# =============================================================================
+# Non-Daily Indicators — excluded from the daily correlation pipeline
+# =============================================================================
+# Monthly, quarterly, and weekly FRED indicators can't be correlated at daily
+# frequency because forward-filling creates artifacts. These go through the
+# separate monthly pipeline instead.
+
+NON_DAILY_INDICATORS: set[str] = {
+    series_id
+    for series_id, meta in FRED_INDICATORS.items()
+    if meta["frequency"] in ("monthly", "quarterly", "weekly")
 }

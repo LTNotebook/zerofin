@@ -25,21 +25,13 @@ from zerofin.analysis.correlations import (
 )
 from zerofin.analysis.filters import _apply_fdr_correction, apply_monthly_stability_filter
 from zerofin.config import settings
-from zerofin.data.tickers import FRED_INDICATORS
+from zerofin.data.tickers import NON_DAILY_INDICATORS
 from zerofin.models.correlations import CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
 
 logger = logging.getLogger(__name__)
 
-
-# FRED indicators that don't update daily — they need to be correlated
-# at monthly frequency because forward-filling to daily creates artifacts.
-NON_DAILY_INDICATORS: set[str] = {
-    series_id
-    for series_id, meta in FRED_INDICATORS.items()
-    if meta["frequency"] in ("monthly", "quarterly", "weekly")
-}
 
 # Window tag for monthly correlations stored in Neo4j.
 # Used consistently across build, clear, and store operations.

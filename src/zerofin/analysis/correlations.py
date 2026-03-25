@@ -45,7 +45,7 @@ from zerofin.analysis.transforms import (
     _z_score_all,
 )
 from zerofin.config import settings
-from zerofin.data.tickers import REDUNDANCY_LOOKUP
+from zerofin.data.tickers import NON_DAILY_INDICATORS, REDUNDANCY_LOOKUP
 from zerofin.models.correlations import CorrelationCandidate, CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
@@ -97,7 +97,14 @@ def run_correlation_pipeline(
     )
 
     # Step 1: Fetch all data in one bulk query
-    raw_rows = db.get_all_market_data_range(start=window_start, end=window_end)
+    # Filter out monthly/quarterly FRED indicators — those go through
+    # the monthly pipeline instead. Forward-filling them to daily
+    # creates junk correlations (r=1.000 between unrelated indicators).
+    all_rows = db.get_all_market_data_range(start=window_start, end=window_end)
+    raw_rows = [
+        row for row in all_rows
+        if row["entity_id"] not in NON_DAILY_INDICATORS
+    ]
     if not raw_rows:
         logger.warning("No data found in the date range — nothing to correlate")
         return CorrelationRunSummary(
