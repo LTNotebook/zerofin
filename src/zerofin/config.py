@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # Starts neutral at 0.5 — validation raises or lowers it.
     CORRELATION_INITIAL_CONFIDENCE: float = 0.5
 
+    # Partial correlation — threshold is lower than Pearson because
+    # controlling for all other variables shrinks the values.
+    PARTIAL_CORRELATION_THRESHOLD: float = 0.18
+
     model_config = {
         "env_file": str(PROJECT_ROOT / ".env"),
         "env_file_encoding": "utf-8",

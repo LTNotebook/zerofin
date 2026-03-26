@@ -11,8 +11,10 @@ Full design docs: `C:/Users/B/Desktop/The Base/Projects/Financial Project/` (15+
 - **Databases:** PostgreSQL (time-series + settings), Neo4j (knowledge graph + vector search + article storage)
 - **Math:** Polars (NOT Pandas)
 - **Embeddings:** Voyage AI (`voyage-finance-2`)
-- **AI (automated):** DeepSeek Speciale API (`deepseek-chat`)
+- **AI (automated):** DeepSeek Speciale API (`deepseek-chat`) via LangChain
 - **AI (interactive):** Claude Code + MCP tools
+- **LLM Orchestration:** LangChain (for DeepSeek pipeline and future multi-model workflows)
+- **Covariance Estimation:** scikit-learn (Ledoit-Wolf, GraphicalLasso)
 - **Web Backend:** FastAPI
 - **Web Frontend:** React (later phases)
 - **Linting:** Ruff
@@ -33,7 +35,12 @@ zerofin/
 │       │   └── news.py        # RSS feed news collector
 │       ├── storage/       # Database connections (postgres, neo4j)
 │       ├── models/        # Pydantic data models
-│       ├── analysis/      # Correlation engine, relationship discovery (Phase 2)
+│       ├── analysis/      # Correlation engine, partial correlation, relationship discovery
+│       │   ├── correlations.py  # Pearson pipeline (beta-removed)
+│       │   ├── partial.py       # Partial correlation (precision matrix)
+│       │   ├── monthly.py       # Monthly FRED pipeline
+│       │   ├── filters.py       # FDR, stability, plausibility filters
+│       │   └── transforms.py    # Returns, z-score, winsorize, beta removal
 │       ├── ai/            # DeepSeek integration, prompts (Phase 2)
 │       └── delivery/      # Briefing generation, alerts (Phase 4)
 ├── scripts/               # Runnable scripts (setup, seed, daily run)
@@ -121,6 +128,12 @@ zerofin/
 - ALWAYS verify data quality after changes (run engine, check Neo4j, audit results)
 - ALWAYS suggest research when uncertain about domain-specific decisions
 - ALWAYS clear the market_data table before re-running backfills (backfill creates duplicates, not upserts)
+- ALWAYS flag new library installations before running them — explain what's being added and why
+- ALWAYS verify script paths exist before citing them — don't guess filenames
+- NEVER use Python for-loops for numeric computation when numpy can vectorize it
+- NEVER stack more statistical filters when the problem is the estimator — fix the math upstream
+- Prefer structural sparsity (glasso) over arbitrary thresholding (Ledoit-Wolf + cutoff)
+- DeepSeek pipeline MUST use LangChain for orchestration — decided 2026-03-25
 
 ## Working Style
 - Explain things in plain English, not jargon
@@ -141,7 +154,14 @@ zerofin/
 - Give complete answers the first time — don't drip-feed pieces that require follow-ups
 - This is a learning project — the user wants to understand WHY, not just see working code
 - When uncertain about domain-specific decisions (thresholds, algorithms, financial math), don't guess — suggest research. Research has been the most valuable part of this project. Every major design decision should be backed by research, not assumptions
-- Suggest specific research prompts — the user runs them in separate terminals and saves results to Obsidian
+- Suggest specific research prompts — the user runs them in separate terminals
+- Research prompts must start with "Research this topic thoroughly — search the web" and include date range if relevant (e.g., "2025-2026 only")
+- Chain of verification: build → test → research if results look wrong → fix → test again
+- The user runs multiple agents in parallel — don't edit files another agent might be editing
+- When delegating to other agents, specify what's safe to delegate vs what needs our context
+- Run correlation audits via agents after every threshold or filter change
+- Don't assume the user remembers technical terms — re-explain simply when asked
+- Don't say "you'll probably never need this" — the user wants to understand everything
 - All documents save to Obsidian (never project docs/ folder):
   - Research: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Research/`
   - Quality audits: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Quality Control/`

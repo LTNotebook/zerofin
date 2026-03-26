@@ -234,19 +234,52 @@ def _bootstrap_ci_excludes_zero(
 
     If the 95% confidence interval includes zero, the correlation
     might not be real — it could just be noise.
+
+    Uses vectorized numpy instead of a Python loop: all 1,000
+    bootstrap index sets are generated at once, ranks are computed
+    in bulk, and correlations are calculated via matrix operations.
     """
     n = len(a)
-    boot_corrs = []
+    if n < 6:
+        return False
+
     rng = np.random.default_rng(42)
 
-    for _ in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        r, _ = stats.spearmanr(a[idx], b[idx])
-        if not math.isnan(r):
-            boot_corrs.append(r)
+    # Generate all bootstrap indices at once: shape (n_boot, n)
+    # Each row is one bootstrap sample's indices
+    all_idx = rng.integers(0, n, size=(n_boot, n))
 
-    if len(boot_corrs) < 100:
+    # Resample both arrays for all bootstraps at once: shape (n_boot, n)
+    a_samples = a[all_idx]
+    b_samples = b[all_idx]
+
+    # Convert to ranks for Spearman (rankdata along each row)
+    # scipy.stats.rankdata doesn't vectorize across rows,
+    # so we use argsort trick: rank = argsort(argsort(x)) + 1
+    a_ranks = a_samples.argsort(axis=1).argsort(axis=1).astype(float)
+    b_ranks = b_samples.argsort(axis=1).argsort(axis=1).astype(float)
+
+    # Pearson correlation on ranks = Spearman correlation
+    # r = (n * sum(xy) - sum(x)*sum(y)) / sqrt((n*sum(x²)-sum(x)²) * (n*sum(y²)-sum(y)²))
+    a_mean = a_ranks.mean(axis=1, keepdims=True)
+    b_mean = b_ranks.mean(axis=1, keepdims=True)
+    a_centered = a_ranks - a_mean
+    b_centered = b_ranks - b_mean
+
+    # Numerator: sum of products of centered values (per bootstrap)
+    numerator = (a_centered * b_centered).sum(axis=1)
+
+    # Denominator: product of norms
+    a_norm = np.sqrt((a_centered ** 2).sum(axis=1))
+    b_norm = np.sqrt((b_centered ** 2).sum(axis=1))
+    denominator = a_norm * b_norm
+
+    # Avoid division by zero (constant ranks in a bootstrap sample)
+    valid = denominator > 0
+    if valid.sum() < 100:
         return False
+
+    boot_corrs = numerator[valid] / denominator[valid]
 
     lower = np.percentile(boot_corrs, 2.5)
     upper = np.percentile(boot_corrs, 97.5)
@@ -353,12 +386,16 @@ FRED_CATEGORY_MAP: dict[str, str] = {
     "RSAFS": "fred_growth", "RSXFS": "fred_growth",
     "DGORDER": "fred_growth", "CPGDPAI": "fred_growth",
     "NEWORDER": "fred_growth", "AMTMNO": "fred_growth",
+    "TCU": "fred_growth", "CP": "fred_growth",
+    "IPG21112N": "fred_growth",
     # Credit / financial conditions
     "BAMLH0A0HYM2": "fred_credit", "BAMLC0A0CM": "fred_credit",
     "BAMLH0A0HYM2EY": "fred_credit",
     "CFNAI": "fred_credit", "STLFSI2": "fred_credit",
     "NFCI": "fred_credit", "ANFCI": "fred_credit",
     "SAHMCURRENT": "fred_credit",
+    "DRTSCILM": "fred_credit", "DRALACBS": "fred_credit",
+    "TOTALSL": "fred_credit", "TOTBKCR": "fred_credit",
     # Rates / yield curve
     "DFF": "fred_rates", "DGS2": "fred_rates", "DGS5": "fred_rates",
     "DGS10": "fred_rates", "DGS30": "fred_rates",
@@ -387,13 +424,14 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     # Commodity ETFs
     "GLD": "commodity_metal", "URA": "commodity_energy",
     "DBA": "commodity_ag", "DBC": "commodity_broad",
-    "LIT": "commodity_metal",
+    "LIT": "commodity_metal", "GDX": "commodity_metal",
     # Crypto
     "BTC-USD": "crypto", "ETH-USD": "crypto", "SOL-USD": "crypto",
     # Bond ETFs
     "TLT": "bond_etf", "SHY": "bond_etf", "IEF": "bond_etf",
     "HYG": "bond_etf", "LQD": "bond_etf", "AGG": "bond_etf",
     "TIP": "bond_etf", "EMLC": "bond_etf",
+    "JNK": "bond_etf", "BKLN": "bond_etf", "EMB": "bond_etf",
     # International ETFs
     "IEFA": "intl_etf", "VEA": "intl_etf", "IEMG": "intl_etf",
     "EEM": "intl_etf", "EMXC": "intl_etf", "VXUS": "intl_etf",
@@ -405,7 +443,11 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     "^TNX": "yield_index", "^TYX": "yield_index",
     "^FVX": "yield_index", "^IRX": "yield_index",
     # Volatility
-    "^VIX": "volatility",
+    "^VIX": "volatility", "^VVIX": "volatility",
+    "^MOVE": "volatility", "^GVZ": "volatility", "^OVX": "volatility",
+    # Currency ETFs
+    "UUP": "currency", "FXE": "currency",
+    "FXY": "currency", "DX-Y.NYB": "currency",
     # US indices
     "^GSPC": "us_index", "^DJI": "us_index", "^IXIC": "us_index",
     "^NDX": "us_index", "^RUT": "us_index", "^W5000": "us_index",

@@ -27,7 +27,7 @@ TIER_STRONG = "strong"          # |r| >= 0.7 — high-confidence
 VALID_TIERS = [TIER_STORE, TIER_ACTIONABLE, TIER_STRONG]
 
 # How was this correlation calculated?
-VALID_METHODS = ["pearson", "spearman"]
+VALID_METHODS = ["pearson", "spearman", "partial"]
 
 # What kind of data was correlated?
 VALID_ENTITY_TYPES = ["asset", "indicator"]
