@@ -21,7 +21,7 @@ from zerofin.config import settings
 
 # Which tier does this correlation fall into?
 # These match the thresholds in config.py
-TIER_STORE = "store"            # |r| >= 0.3 — weak, worth watching
+TIER_STORE = "store"            # |r| >= CORRELATION_TIER_STORE (see config.py)
 TIER_ACTIONABLE = "actionable"  # |r| >= 0.5 — moderate, use in analysis
 TIER_STRONG = "strong"          # |r| >= 0.7 — high-confidence
 VALID_TIERS = [TIER_STORE, TIER_ACTIONABLE, TIER_STRONG]
@@ -133,7 +133,11 @@ class CorrelationCandidate(BaseModel):
             self.tier = TIER_STRONG
         elif self.strength >= settings.CORRELATION_TIER_ACTIONABLE:
             self.tier = TIER_ACTIONABLE
+        elif self.strength >= settings.CORRELATION_TIER_STORE:
+            self.tier = TIER_STORE
         else:
+            # Below the store threshold — should not normally reach here
+            # since the pipeline pre-filters, but enforce it defensively.
             self.tier = TIER_STORE
 
         return self

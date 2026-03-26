@@ -69,7 +69,7 @@ class BaseCollector(ABC):
     collector_name: str = "base"
 
     @abstractmethod
-    def collect_latest(self) -> CollectorResult:
+    def collect_latest(self) -> dict[str, Any]:
         """Pull the most recent data and store it.
 
         Every collector MUST implement this method. It should:
@@ -79,14 +79,15 @@ class BaseCollector(ABC):
         4. Return a summary dict
 
         Returns:
-            A CollectorResult with at least these keys:
+            A dict with at least these keys (see CollectorResult):
             - "stored": number of data points successfully saved
             - "failed": number of data points that failed validation or storage
             - "collector": name of this collector
+            Plus collector-specific extras (details, skipped_null, etc.)
         """
 
     @abstractmethod
-    def collect_history(self, **kwargs: Any) -> CollectorResult:
+    def collect_history(self, **kwargs: Any) -> dict[str, Any]:
         """Pull historical data and store it (for backfilling).
 
         Every collector MUST implement this method. Used when you first
@@ -107,7 +108,7 @@ class BaseCollector(ABC):
         stored: int,
         failed: int,
         **extra: Any,
-    ) -> CollectorResult:
+    ) -> dict[str, Any]:
         """Build a standard summary dict that all collectors return.
 
         This ensures every collector's result looks the same, so the

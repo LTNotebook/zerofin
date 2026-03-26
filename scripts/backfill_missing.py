@@ -58,7 +58,8 @@ def main() -> None:
                     total_failed += 1
                     continue
 
-                stored = 0
+                # Validate all rows first, then batch insert per ticker
+                batch: list[dict] = []
                 for date, row in data.iterrows():
                     close = row.get("Close")
 
@@ -69,8 +70,7 @@ def main() -> None:
                         timestamp = pendulum.instance(date.to_pydatetime())
                         close_decimal = Decimal(str(close)).quantize(PRICE_DECIMAL_PLACES)
 
-                        # Validate through Pydantic before storing
-                        DataPointCreate(
+                        data_point = DataPointCreate(
                             entity_type="asset",
                             entity_id=ticker,
                             metric="close_price",
@@ -80,16 +80,17 @@ def main() -> None:
                             unit="USD",
                         )
 
-                        db.insert_data_point(
-                            entity_type="asset",
-                            entity_id=ticker,
-                            metric="close_price",
-                            value=close_decimal,
-                            timestamp=timestamp,
-                            source="yfinance",
-                            unit="USD",
-                        )
-                        stored += 1
+                        batch.append({
+                            "entity_type": data_point.entity_type,
+                            "entity_id": data_point.entity_id,
+                            "metric": data_point.metric,
+                            "value": data_point.value,
+                            "unit": data_point.unit,
+                            "timestamp": data_point.timestamp,
+                            "source": data_point.source,
+                            "is_revised": False,
+                            "revision_of": None,
+                        })
 
                     except (InvalidOperation, ValidationError) as error:
                         logger.warning(
@@ -97,6 +98,7 @@ def main() -> None:
                             ticker, date, error,
                         )
 
+                stored = db.insert_data_points_batch(batch)
                 logger.info("%s: stored %d data points", ticker, stored)
                 total_stored += stored
 

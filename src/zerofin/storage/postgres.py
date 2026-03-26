@@ -12,6 +12,7 @@ All queries use parameterized placeholders (%s) to prevent SQL injection.
 from __future__ import annotations
 
 import logging
+import time
 from decimal import Decimal
 from types import TracebackType
 from typing import Any
@@ -61,6 +62,21 @@ CREATE TABLE IF NOT EXISTS market_data (
 CREATE_DATA_POINTS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_market_data_entity_time
 ON market_data (entity_type, entity_id, timestamp);
+"""
+
+# Unique constraint to prevent duplicate data points for the same entity/metric/time.
+# Enables ON CONFLICT upsert so re-running backfills updates rather than duplicates.
+CREATE_DATA_POINTS_UNIQUE = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_market_data_unique
+ON market_data (entity_type, entity_id, metric, timestamp);
+"""
+
+# Partial index for correlation queries — covers the common access pattern
+# (all non-volume data in a date range) without indexing volume rows.
+CREATE_DATA_POINTS_PARTIAL_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_market_data_correlation
+ON market_data (timestamp, entity_type, entity_id)
+WHERE metric != 'volume';
 """
 
 # Insert a single data point and return the generated id so we can reference it.
@@ -148,12 +164,21 @@ class PostgresStorage:
         # a tuple, so we can access columns by name: row["entity_id"].
         # autocommit=False (the default) means we need to call conn.commit()
         # after writes — this is safer because we can roll back on errors.
-        # We unpack the params dict so the password stays as a separate value
-        # and is never joined into a URL string that could appear in logs.
-        self._connection = psycopg.connect(
-            **settings.postgres_connection_params(),
-            row_factory=dict_row,
-        )
+        # connect_timeout prevents hanging if Postgres is unreachable.
+        try:
+            self._connection = psycopg.connect(
+                **settings.postgres_connection_params(),
+                row_factory=dict_row,
+                connect_timeout=30,
+            )
+        except psycopg.OperationalError:
+            logger.warning("PostgreSQL connection failed — retrying in 2s")
+            time.sleep(2)
+            self._connection = psycopg.connect(
+                **settings.postgres_connection_params(),
+                row_factory=dict_row,
+                connect_timeout=30,
+            )
 
         logger.info("Connected to PostgreSQL database '%s'", settings.POSTGRES_DB)
 
@@ -222,6 +247,8 @@ class PostgresStorage:
         with self._conn.cursor() as cursor:
             cursor.execute(CREATE_DATA_POINTS_TABLE)
             cursor.execute(CREATE_DATA_POINTS_INDEX)
+            cursor.execute(CREATE_DATA_POINTS_UNIQUE)
+            cursor.execute(CREATE_DATA_POINTS_PARTIAL_INDEX)
 
         # Commit the transaction — without this, the table creation would be
         # rolled back when the connection closes.
@@ -315,12 +342,16 @@ class PostgresStorage:
         sends all rows in one executemany() call with one commit
         instead of hundreds of thousands of individual commits.
 
+        Uses ON CONFLICT to handle duplicates gracefully — if a data
+        point already exists for the same entity/metric/timestamp,
+        the value and source are updated instead of raising an error.
+
         Each dict in data_points should have:
             entity_type, entity_id, metric, value, unit,
             timestamp, source, is_revised, revision_of
 
         Returns:
-            Number of rows inserted.
+            Number of rows inserted or updated.
         """
         if not data_points:
             return 0
@@ -335,16 +366,24 @@ class PostgresStorage:
                 %(value)s, %(unit)s, %(timestamp)s,
                 %(source)s, %(is_revised)s, %(revision_of)s
             )
+            ON CONFLICT (entity_type, entity_id, metric, timestamp)
+            DO UPDATE SET
+                value = EXCLUDED.value,
+                source = EXCLUDED.source,
+                collected_at = NOW()
         """
 
-        # Execute all inserts, then commit once at the end.
-        # This is much faster than commit-per-row because the
-        # database only writes to disk once instead of N times.
-        with self._conn.cursor() as cursor:
-            for params in data_points:
-                cursor.execute(query, params)
-
-        self._conn.commit()
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(query, data_points)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.error(
+                "Batch insert failed for %d data points — rolled back",
+                len(data_points),
+            )
+            raise
 
         count = len(data_points)
         logger.info("Batch inserted %d data points", count)

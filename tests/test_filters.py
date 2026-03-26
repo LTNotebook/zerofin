@@ -34,7 +34,7 @@ class TestFDRCorrection:
     def test_obvious_signal_survives(self) -> None:
         """A very low p-value should always survive FDR."""
         results = [
-            {"pearson_r": 0.9, "pearson_p": 0.0001, "entity_a": "A", "entity_b": "B"},
+            {"correlation_r": 0.9, "correlation_p": 0.0001, "entity_a": "A", "entity_b": "B"},
         ]
         surviving = _apply_fdr_correction(results)
         assert len(surviving) == 1
@@ -43,7 +43,7 @@ class TestFDRCorrection:
     def test_obvious_noise_rejected(self) -> None:
         """A high p-value (random noise) should be rejected."""
         results = [
-            {"pearson_r": 0.1, "pearson_p": 0.8, "entity_a": "A", "entity_b": "B"},
+            {"correlation_r": 0.1, "correlation_p": 0.8, "entity_a": "A", "entity_b": "B"},
         ]
         surviving = _apply_fdr_correction(results)
         assert len(surviving) == 0
@@ -58,15 +58,15 @@ class TestFDRCorrection:
         results = []
         for i in range(5):
             results.append({
-                "pearson_r": 0.8,
-                "pearson_p": 0.001,
+                "correlation_r": 0.8,
+                "correlation_p": 0.001,
                 "entity_a": f"real_{i}",
                 "entity_b": "X",
             })
         for i in range(95):
             results.append({
-                "pearson_r": 0.3,
-                "pearson_p": 0.04 + i * 0.001,
+                "correlation_r": 0.3,
+                "correlation_p": 0.04 + i * 0.001,
                 "entity_a": f"noise_{i}",
                 "entity_b": "X",
             })
@@ -84,7 +84,7 @@ class TestFDRCorrection:
     def test_does_not_mutate_input(self) -> None:
         """FDR should not modify the original input dicts."""
         results = [
-            {"pearson_r": 0.9, "pearson_p": 0.001, "entity_a": "A", "entity_b": "B"},
+            {"correlation_r": 0.9, "correlation_p": 0.001, "entity_a": "A", "entity_b": "B"},
         ]
         original_keys = set(results[0].keys())
         _apply_fdr_correction(results)
@@ -94,7 +94,7 @@ class TestFDRCorrection:
     def test_adjusted_p_added_to_survivors(self) -> None:
         """Surviving results should have an adjusted_p field."""
         results = [
-            {"pearson_r": 0.9, "pearson_p": 0.0001, "entity_a": "A", "entity_b": "B"},
+            {"correlation_r": 0.9, "correlation_p": 0.0001, "entity_a": "A", "entity_b": "B"},
         ]
         surviving = _apply_fdr_correction(results)
         assert "adjusted_p" in surviving[0]

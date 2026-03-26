@@ -156,6 +156,7 @@ zerofin/
 - When uncertain about domain-specific decisions (thresholds, algorithms, financial math), don't guess — suggest research. Research has been the most valuable part of this project. Every major design decision should be backed by research, not assumptions
 - Suggest specific research prompts — the user runs them in separate terminals
 - Research prompts must start with "Research this topic thoroughly — search the web" and include date range if relevant (e.g., "2025-2026 only")
+- When suggesting prompts for separate terminals (code reviews, research, fixes), preface with: `claude --dangerously-skip-permissions --model "claude-opus-4-6[1m]"` — we use the `[1m]` suffix for the 1M context window, otherwise it defaults to 200k
 - Chain of verification: build → test → research if results look wrong → fix → test again
 - The user runs multiple agents in parallel — don't edit files another agent might be editing
 - When delegating to other agents, specify what's safe to delegate vs what needs our context

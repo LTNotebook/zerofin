@@ -10,9 +10,8 @@ Two models for Phase 1:
 - DataPointCreate: validates numbers going into PostgreSQL (prices, indicators)
 - EntityCreate: validates entities going into Neo4j (companies, sectors, etc.)
 
-Entity type labels live in zerofin.storage.graph (ENTITY_LABELS) — that is the
-single source of truth. This module imports from there rather than duplicating
-the list.
+Entity type labels live in zerofin.constants (ENTITY_LABELS) — that is the
+single source of truth. Both models/ and storage/ import from there.
 """
 
 from __future__ import annotations
@@ -23,9 +22,9 @@ from typing import Any
 import pendulum
 from pydantic import BaseModel, Field, field_validator
 
-# Import the single authoritative list of entity labels from the graph module.
-# graph.py owns this list — don't maintain a second copy here.
-from zerofin.storage.graph import ENTITY_LABELS
+# Import the single authoritative list of entity labels from the shared
+# constants module — neutral location that both models/ and storage/ can use.
+from zerofin.constants import ENTITY_LABELS
 
 # What kind of thing is the data point about?
 # "asset" = stocks, ETFs, commodities with prices
