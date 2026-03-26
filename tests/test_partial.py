@@ -1,7 +1,7 @@
 """
 Tests for the partial correlation engine.
 
-These test the precision matrix computation, p-value calculation,
+These test the EBIC-tuned Graphical Lasso precision matrix computation
 and pair extraction. Uses synthetic data where we know the right answer.
 
 Run with:
@@ -26,7 +26,7 @@ from zerofin.analysis.partial import (
 
 
 class TestComputePartialCorrelationMatrix:
-    """Tests for the Ledoit-Wolf precision matrix computation."""
+    """Tests for the EBIC-tuned Graphical Lasso precision matrix computation."""
 
     def test_strongly_correlated_pair(self) -> None:
         """Two strongly correlated variables should have a high partial corr."""

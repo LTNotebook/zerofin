@@ -79,6 +79,20 @@ class Settings(BaseSettings):
     # controlling for all other variables shrinks the values.
     PARTIAL_CORRELATION_THRESHOLD: float = 0.18
 
+    # EBIC gamma — controls sparsity aggressiveness for Graphical Lasso.
+    # 0.5 = standard for very high-dimensional data (p >> n).
+    # 0.1 = appropriate when p/n < 1 and we accept ~15-20% noise
+    # that downstream AI verification handles.
+    EBIC_GAMMA: float = 0.1
+
+    # Number of alpha values to test in the EBIC search grid
+    EBIC_N_ALPHAS: int = 50
+
+    # Graphical Lasso solver settings
+    GLASSO_MAX_ITER: int = 200
+    GLASSO_CONVERGENCE_TOL: float = 1e-4
+    GLASSO_ALPHA_RANGE_RATIO: float = 0.01
+
     model_config = {
         "env_file": str(PROJECT_ROOT / ".env"),
         "env_file_encoding": "utf-8",

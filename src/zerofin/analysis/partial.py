@@ -6,14 +6,17 @@ move together because they both follow the market. Partial correlation asks:
 "Do A and B still move together after accounting for EVERYTHING else?"
 
 The math:
-    1. Compute a shrunk covariance matrix (Ledoit-Wolf handles the case
-       where we have lots of entities relative to observations)
-    2. Invert it to get the precision matrix
-    3. Convert precision entries to partial correlations:
+    1. Fit Graphical Lasso at multiple alpha values (sparsity levels)
+    2. Select the best alpha using EBIC (Extended BIC) — controls false
+       discovery by penalizing model complexity
+    3. The resulting sparse precision matrix has exact structural zeros
+       for pairs with no direct connection
+    4. Convert nonzero precision entries to partial correlations:
        ρ_ij = -P_ij / sqrt(P_ii * P_jj)
 
-This is one matrix inversion — no loops, no bootstraps. The whole thing
-runs in under a second for 200 entities.
+No post-hoc p-value testing or FDR correction — EBIC handles false
+discovery at the estimation stage. See Research/Glasso FDR Redundancy
+Question.md for why this is correct.
 
 The key difference from the regular pipeline: we do NOT remove market/sector
 beta first. Partial correlation inherently controls for all confounders
@@ -243,14 +246,6 @@ def _compute_partial_correlation_matrix(
     return partial_corr, entity_cols, n_obs
 
 
-# Number of alpha values to test for EBIC tuning
-EBIC_N_ALPHAS = 50
-
-# EBIC gamma parameter — controls sparsity aggressiveness.
-# 0.5 is standard for very high-dimensional data (p >> n).
-# 0.1 is appropriate when p/n < 1 and we want more discovery,
-# accepting ~15-20% noise that downstream AI verification handles.
-EBIC_GAMMA = 0.1
 
 
 def _fit_glasso_ebic(
@@ -266,15 +261,20 @@ def _fit_glasso_ebic(
     where |E| is the number of nonzero edges. This penalizes complexity
     more aggressively than cross-validation, controlling false positives.
     """
-    # Compute empirical covariance
-    emp_cov = np.cov(data, rowvar=False)
+    # Center data explicitly — GraphicalLasso with assume_centered=False
+    # would do this internally, but we need the centered covariance for
+    # EBIC scoring to be consistent with the precision matrix
+    data_centered = data - data.mean(axis=0)
+    emp_cov = np.cov(data_centered, rowvar=False)
 
     # Generate alpha range (log-spaced from small to large)
     # Small alpha = dense graph, large alpha = sparse graph
     alpha_max = np.max(np.abs(emp_cov - np.diag(np.diag(emp_cov))))
-    alpha_min = alpha_max * 0.01
+    alpha_min = alpha_max * settings.GLASSO_ALPHA_RANGE_RATIO
     alphas = np.logspace(
-        np.log10(alpha_min), np.log10(alpha_max), EBIC_N_ALPHAS
+        np.log10(alpha_min),
+        np.log10(alpha_max),
+        settings.EBIC_N_ALPHAS,
     )
 
     best_ebic = np.inf
@@ -296,15 +296,15 @@ def _fit_glasso_ebic(
                 gl = GraphicalLasso(
                     alpha=alpha,
                     mode="cd",
-                    max_iter=200,
-                    tol=1e-4,
+                    max_iter=settings.GLASSO_MAX_ITER,
+                    tol=settings.GLASSO_CONVERGENCE_TOL,
                     assume_centered=True,
                 )
-                gl.fit(data)
+                gl.fit(data_centered)
 
                 precision = gl.precision_
 
-                # Compute log-likelihood
+                # Compute log-likelihood using consistent covariance
                 # L = (n/2) * (log|Θ| - trace(S * Θ))
                 sign, log_det = np.linalg.slogdet(precision)
                 if sign <= 0:
@@ -322,7 +322,8 @@ def _fit_glasso_ebic(
                 ebic = (
                     -2 * log_lik
                     + n_edges * np.log(n_obs)
-                    + 4 * EBIC_GAMMA * n_edges * np.log(n_vars)
+                    + 4 * settings.EBIC_GAMMA
+                    * n_edges * np.log(n_vars)
                 )
 
                 if ebic < best_ebic:
@@ -419,7 +420,8 @@ def _build_partial_candidates(
                 entity_b_type=b_type,
                 entity_b_id=b_id,
                 correlation=round(result["pearson_r"], 6),
-                p_value=round(result.get("adjusted_p", result["pearson_p"]), 6),
+                # p_value=0.0 — EBIC handles significance, not p-tests
+                p_value=0.0,
                 method="partial",
                 lag_days=0,
                 observation_count=result["observation_count"],
@@ -500,7 +502,7 @@ def _empty_summary(
     return CorrelationRunSummary(
         total_pairs_tested=0,
         pairs_above_threshold=0,
-        pairs_surviving_fdr=0,
+        pairs_surviving_fdr=0,  # No FDR for glasso; EBIC handles it
         relationships_stored=0,
         window_days=window,
         window_end=window_end,
