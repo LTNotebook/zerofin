@@ -19,6 +19,7 @@ rest of the codebase.
 from __future__ import annotations
 
 import logging
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -128,132 +129,120 @@ class EconomicCollector(BaseCollector):
             return self._build_summary(stored=0, failed=0, skipped_null=0, details=[])
 
         # Track results for the summary
-        collected_count = 0
         failed_count = 0
         skipped_null_count = 0
         details: list[dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
 
-        # Open one database connection for all inserts — more efficient than
-        # opening/closing for each indicator
-        with PostgresStorage() as db:
-            for series_id, info in self.indicators.items():
-                try:
-                    # fredapi.Fred.get_series() returns a pandas Series with
-                    # dates as the index and values as floats. We only want
-                    # the last (most recent) observation.
-                    logger.info("Fetching latest %s (%s) from FRED", info["name"], series_id)
-                    series = fred.get_series(series_id)
+        # Fetch and validate all indicators first, then store in one batch
+        for i, (series_id, info) in enumerate(self.indicators.items()):
+            # Respect FRED rate limits — brief pause between API calls
+            if i > 0:
+                time.sleep(0.2)
 
-                    # The series might be empty if FRED has no data
-                    if series.empty:
-                        logger.warning("FRED returned empty series for %s", series_id)
-                        failed_count += 1
-                        details.append({"series_id": series_id, "status": "empty_series"})
-                        continue
+            try:
+                logger.info("Fetching latest %s (%s) from FRED", info["name"], series_id)
+                series = fred.get_series(series_id)
 
-                    # Get the last observation (most recent date)
-                    last_date = series.index[-1]
-                    last_value = series.iloc[-1]
+                if series.empty:
+                    logger.warning("FRED returned empty series for %s", series_id)
+                    failed_count += 1
+                    details.append({"series_id": series_id, "status": "empty_series"})
+                    continue
 
-                    # Some FRED series have NaN for the latest observation
-                    # (e.g., data not yet released). Skip those.
-                    if _is_null_value(last_value):
-                        logger.info(
-                            "Latest value for %s (%s) is null — data may not be released yet",
-                            info["name"],
-                            series_id,
-                        )
-                        skipped_null_count += 1
-                        details.append({"series_id": series_id, "status": "null_value"})
-                        continue
+                last_date = series.index[-1]
+                last_value = series.iloc[-1]
 
-                    # Convert the pandas Timestamp to a pendulum DateTime with UTC timezone.
-                    # FRED dates are just dates (no time), so we set time to midnight UTC.
-                    observation_date = _pandas_timestamp_to_pendulum(last_date)
-
-                    # Convert the float value to Decimal for financial precision.
-                    # Floats can't represent some decimals exactly (e.g., 0.1),
-                    # but Decimal can. We convert via string to avoid float artifacts.
-                    decimal_value = _float_to_decimal(last_value)
-
-                    # Validate through our Pydantic model — this is the bouncer at the door.
-                    # If any field is wrong, ValidationError is raised and we catch it below.
-                    data_point = DataPointCreate(
-                        entity_type="indicator",
-                        entity_id=series_id,
-                        metric=info["metric"],
-                        value=decimal_value,
-                        unit=info["unit"],
-                        timestamp=observation_date,
-                        source="fred",
-                    )
-
-                    # Store in PostgreSQL
-                    inserted_id = db.insert_data_point(
-                        entity_type=data_point.entity_type,
-                        entity_id=data_point.entity_id,
-                        metric=data_point.metric,
-                        value=data_point.value,
-                        unit=data_point.unit,
-                        timestamp=data_point.timestamp,
-                        source=data_point.source,
-                    )
-
+                if _is_null_value(last_value):
                     logger.info(
-                        "Stored %s = %s (date: %s, id: %d)",
-                        info["name"],
-                        decimal_value,
-                        observation_date.to_date_string(),
-                        inserted_id,
-                    )
-                    collected_count += 1
-                    details.append(
-                        {
-                            "series_id": series_id,
-                            "status": "ok",
-                            "value": str(decimal_value),
-                            "date": observation_date.to_date_string(),
-                            "db_id": inserted_id,
-                        }
-                    )
-
-                except ValidationError as exc:
-                    # Pydantic rejected the data — something is wrong with the values
-                    logger.error(
-                        "Validation failed for %s (%s): %s",
+                        "Latest value for %s (%s) is null — data may not be released yet",
                         info["name"],
                         series_id,
-                        exc,
                     )
-                    failed_count += 1
-                    details.append(
-                        {
-                            "series_id": series_id,
-                            "status": "validation_error",
-                            "error": str(exc),
-                        }
-                    )
+                    skipped_null_count += 1
+                    details.append({"series_id": series_id, "status": "null_value"})
+                    continue
 
-                except Exception as exc:
-                    # Catch-all for FRED API errors, network issues, etc.
-                    # Log and continue — don't let one bad indicator kill the whole run.
-                    logger.error(
-                        "Failed to collect %s (%s): %s",
-                        info["name"],
-                        series_id,
-                        exc,
-                    )
-                    failed_count += 1
-                    details.append(
-                        {
-                            "series_id": series_id,
-                            "status": "error",
-                            "error": str(exc),
-                        }
-                    )
+                observation_date = _pandas_timestamp_to_pendulum(last_date)
+                decimal_value = _float_to_decimal(last_value)
 
-        # Build and return the standard summary via the base class helper.
-        # "skipped_null" and "details" are passed as extras.
+                # Validate through Pydantic before adding to batch
+                data_point = DataPointCreate(
+                    entity_type="indicator",
+                    entity_id=series_id,
+                    metric=info["metric"],
+                    value=decimal_value,
+                    unit=info["unit"],
+                    timestamp=observation_date,
+                    source="fred",
+                )
+
+                batch.append({
+                    "entity_type": data_point.entity_type,
+                    "entity_id": data_point.entity_id,
+                    "metric": data_point.metric,
+                    "value": data_point.value,
+                    "unit": data_point.unit,
+                    "timestamp": data_point.timestamp,
+                    "source": data_point.source,
+                    "is_revised": False,
+                    "revision_of": None,
+                })
+
+                logger.info(
+                    "Validated %s = %s (date: %s)",
+                    info["name"],
+                    decimal_value,
+                    observation_date.to_date_string(),
+                )
+                details.append(
+                    {
+                        "series_id": series_id,
+                        "status": "ok",
+                        "value": str(decimal_value),
+                        "date": observation_date.to_date_string(),
+                    }
+                )
+
+            except ValidationError as exc:
+                logger.error(
+                    "Validation failed for %s (%s): %s",
+                    info["name"],
+                    series_id,
+                    exc,
+                )
+                failed_count += 1
+                details.append(
+                    {
+                        "series_id": series_id,
+                        "status": "validation_error",
+                        "error": str(exc),
+                    }
+                )
+
+            except Exception as exc:
+                logger.error(
+                    "Failed to collect %s (%s): %s",
+                    info["name"],
+                    series_id,
+                    exc,
+                )
+                failed_count += 1
+                details.append(
+                    {
+                        "series_id": series_id,
+                        "status": "error",
+                        "error": str(exc),
+                    }
+                )
+
+        # Store all validated points in one batch commit
+        collected_count = 0
+        if batch:
+            with PostgresStorage() as db:
+                collected_count = db.insert_data_points_batch(batch)
+            logger.info("Batch stored %d economic data points", collected_count)
+
         return self._build_summary(
             stored=collected_count,
             failed=failed_count,
@@ -316,7 +305,11 @@ class EconomicCollector(BaseCollector):
         details: list[dict[str, Any]] = []
 
         with PostgresStorage() as db:
-            for series_id, info in self.indicators.items():
+            for i, (series_id, info) in enumerate(self.indicators.items()):
+                # Respect FRED rate limits — brief pause between API calls
+                if i > 0:
+                    time.sleep(0.2)
+
                 try:
                     logger.info(
                         "Fetching history for %s (%s)",

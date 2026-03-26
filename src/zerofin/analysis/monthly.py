@@ -20,16 +20,16 @@ from scipy import stats
 
 from zerofin.analysis.correlations import (
     _build_candidates,
-    _clear_old_candidates,
-    _store_candidates_batch,
+    _replace_candidates_atomic,
 )
 from zerofin.analysis.filters import (
     _apply_fdr_correction,
     apply_monthly_stability_filter,
     is_pair_plausible,
 )
+from zerofin.analysis.transforms import MIN_VARIANCE
 from zerofin.config import settings
-from zerofin.data.tickers import NON_DAILY_INDICATORS
+from zerofin.data.tickers import MONTHLY_PIPELINE_INDICATORS
 from zerofin.models.correlations import CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
@@ -64,7 +64,7 @@ def run_monthly_correlation_pipeline(
     """
     start_time = time.monotonic()
     window_end = pendulum.now("UTC")
-    window_start = window_end.subtract(years=5)
+    window_start = window_end.subtract(years=10)
 
     logger.info(
         "Starting monthly FRED pipeline (%s to %s)",
@@ -86,7 +86,7 @@ def run_monthly_correlation_pipeline(
     for row in raw_rows:
         if row["entity_type"] == "asset":
             asset_rows.append(row)
-        elif row["entity_id"] in NON_DAILY_INDICATORS:
+        elif row["entity_id"] in MONTHLY_PIPELINE_INDICATORS:
             indicator_rows.append(row)
 
     if not asset_rows or not indicator_rows:
@@ -153,11 +153,14 @@ def run_monthly_correlation_pipeline(
     candidates = _build_candidates(to_store, MONTHLY_WINDOW_DAYS, window_end)
     logger.info("Built %d monthly candidates", len(candidates))
 
-    cleared = _clear_old_candidates(graph, MONTHLY_WINDOW_DAYS)
-    logger.info("Cleared %d old monthly candidates", cleared)
-
-    stored = _store_candidates_batch(graph, candidates)
-    logger.info("Stored %d monthly candidates in Neo4j", stored)
+    # Atomically replace old candidates with new ones
+    stored, cleared = _replace_candidates_atomic(
+        graph, candidates, MONTHLY_WINDOW_DAYS,
+    )
+    logger.info(
+        "Replaced monthly candidates: %d stored, %d old cleared",
+        stored, cleared,
+    )
 
     duration = time.monotonic() - start_time
     total = (len(monthly_returns.columns) - 1) * (
@@ -233,13 +236,14 @@ def _build_monthly_returns(asset_rows: list[dict]) -> pl.DataFrame:
         on="entity_key", index="month", values="value"
     ).sort("month")
 
-    # Compute monthly returns: (this month / last month) - 1
+    # Compute monthly log returns: ln(this month / last month)
+    # Using log returns for consistency with the daily pipeline.
     entity_cols = [c for c in wide.columns if c != "month"]
     return_cols = {"month": wide["month"]}
     for col in entity_cols:
         shifted = wide[col].shift(1)
-        returns = (wide[col] - shifted) / shifted.replace(0, None)
-        return_cols[col] = returns
+        ratio = wide[col] / shifted.replace(0, None)
+        return_cols[col] = ratio.log()
 
     result = pl.DataFrame(return_cols)
     return result.slice(1)  # Drop first row (NaN from shift)
@@ -329,7 +333,7 @@ def _correlate_monthly(
             a = pair[asset_col].to_numpy()
             b = pair[ind_col].to_numpy()
 
-            if np.std(a) < 1e-10 or np.std(b) < 1e-10:  # near-zero variance
+            if np.std(a) < MIN_VARIANCE or np.std(b) < MIN_VARIANCE:
                 continue
 
             # Spearman rank correlation
@@ -342,8 +346,8 @@ def _correlate_monthly(
                 "entity_a": asset_col,
                 "entity_b": ind_col,
                 "lag_days": 0,
-                "pearson_r": float(r),  # Actually Spearman, but same field
-                "pearson_p": float(p),
+                "correlation_r": float(r),
+                "correlation_p": float(p),
                 "observation_count": pair.height,
                 "method": "spearman",
             })

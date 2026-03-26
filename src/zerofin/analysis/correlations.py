@@ -62,6 +62,10 @@ MIN_CORRELATION_OBS = 30
 # Minimum observations for Spearman verification of lagged pairs
 MIN_SPEARMAN_OBS = 20
 
+# Minimum window size (days) for the stability filter to be useful.
+# Below ~6 weeks, splitting in half leaves too few observations per half.
+MIN_STABILITY_WINDOW_DAYS = 42
+
 
 # ─── Main entry point ────────────────────────────────────────────────
 
@@ -183,7 +187,7 @@ def run_correlation_pipeline(
     logger.info("%d correlations survived FDR correction", len(surviving))
 
     # Step 9: Stability filter
-    if settings.CORRELATION_STABILITY_FILTER and window >= 42:
+    if settings.CORRELATION_STABILITY_FILTER and window >= MIN_STABILITY_WINDOW_DAYS:
         surviving = _apply_stability_filter(returns_df, surviving)
         logger.info("%d correlations survived stability filter", len(surviving))
 
@@ -191,12 +195,9 @@ def run_correlation_pipeline(
     candidates = _build_candidates(surviving, window, window_end)
     logger.info("Built %d validated candidates", len(candidates))
 
-    # Step 11: Clear old statistical candidates and store new ones
-    cleared = _clear_old_candidates(graph, window)
-    logger.info("Cleared %d old statistical candidates", cleared)
-
-    stored = _store_candidates_batch(graph, candidates)
-    logger.info("Stored %d new candidates in Neo4j", stored)
+    # Step 11: Atomically replace old candidates with new ones
+    stored, cleared = _replace_candidates_atomic(graph, candidates, window)
+    logger.info("Replaced candidates: %d stored, %d old cleared", stored, cleared)
 
     duration = time.monotonic() - start_time
     total_pairs = len(entity_columns) * (len(entity_columns) - 1) // 2
@@ -400,28 +401,70 @@ def _compute_pairwise_correlations(
             valid_lags = macro_lags if is_macro else equity_lags
 
             for lag in valid_lags:
-                # We need A at lag 0 and B at lag N
-                row_a = entity_lag_index[col_a].get(0)
-                row_b = entity_lag_index[col_b].get(lag)
+                if lag == 0:
+                    # Lag 0 is symmetric — only need one direction
+                    row_a = entity_lag_index[col_a].get(0)
+                    row_b = entity_lag_index[col_b].get(0)
 
-                if row_a is None or row_b is None:
-                    continue
+                    if row_a is None or row_b is None:
+                        continue
 
-                r = corr_matrix[row_a, row_b]
-                p = p_matrix[row_a, row_b]
+                    r = corr_matrix[row_a, row_b]
+                    p = p_matrix[row_a, row_b]
 
-                if math.isnan(r) or abs(r) < min_strength:
-                    continue
+                    if math.isnan(r) or abs(r) < min_strength:
+                        continue
 
-                results.append({
-                    "entity_a": col_a,
-                    "entity_b": col_b,
-                    "lag_days": lag,
-                    "pearson_r": float(r),
-                    "pearson_p": float(p),
-                    "observation_count": int(n_obs),
-                    "method": "pearson",
-                })
+                    results.append({
+                        "entity_a": col_a,
+                        "entity_b": col_b,
+                        "lag_days": 0,
+                        "correlation_r": float(r),
+                        "correlation_p": float(p),
+                        "observation_count": int(n_obs),
+                        "method": "pearson",
+                    })
+                else:
+                    # Non-zero lag: test BOTH directions to catch
+                    # all lead-lag relationships regardless of pair order.
+                    # Direction 1: B leads A (B at T-lag vs A at T)
+                    row_a_0 = entity_lag_index[col_a].get(0)
+                    row_b_lag = entity_lag_index[col_b].get(lag)
+
+                    if row_a_0 is not None and row_b_lag is not None:
+                        r = corr_matrix[row_a_0, row_b_lag]
+                        p = p_matrix[row_a_0, row_b_lag]
+
+                        if not math.isnan(r) and abs(r) >= min_strength:
+                            results.append({
+                                "entity_a": col_a,
+                                "entity_b": col_b,
+                                "lag_days": lag,
+                                "correlation_r": float(r),
+                                "correlation_p": float(p),
+                                "observation_count": int(n_obs),
+                                "method": "pearson",
+                            })
+
+                    # Direction 2: A leads B (A at T-lag vs B at T)
+                    # Swap entities so entity_b is always the leader
+                    row_a_lag = entity_lag_index[col_a].get(lag)
+                    row_b_0 = entity_lag_index[col_b].get(0)
+
+                    if row_a_lag is not None and row_b_0 is not None:
+                        r = corr_matrix[row_a_lag, row_b_0]
+                        p = p_matrix[row_a_lag, row_b_0]
+
+                        if not math.isnan(r) and abs(r) >= min_strength:
+                            results.append({
+                                "entity_a": col_b,
+                                "entity_b": col_a,
+                                "lag_days": lag,
+                                "correlation_r": float(r),
+                                "correlation_p": float(p),
+                                "observation_count": int(n_obs),
+                                "method": "pearson",
+                            })
 
     # Spearman sanity check — only on candidates that passed Pearson
     if do_spearman and results:
@@ -451,11 +494,11 @@ def _compute_pairwise_correlations(
             result["spearman_p"] = spearman_p
 
             # If Pearson and Spearman strongly disagree, skip
-            if abs(result["pearson_r"]) >= min_strength and abs(spearman_r) < min_strength:
+            if abs(result["correlation_r"]) >= min_strength and abs(spearman_r) < min_strength:
                 logger.debug(
                     "Pearson/Spearman disagree for %s vs %s (lag %d): "
                     "Pearson=%.3f, Spearman=%.3f — skipping",
-                    col_a, col_b, lag, result["pearson_r"], spearman_r,
+                    col_a, col_b, lag, result["correlation_r"], spearman_r,
                 )
                 continue
 
@@ -492,8 +535,8 @@ def _build_candidates(
                 entity_a_id=a_id,
                 entity_b_type=b_type,
                 entity_b_id=b_id,
-                correlation=round(result["pearson_r"], 6),
-                p_value=round(result.get("adjusted_p", result["pearson_p"]), 6),
+                correlation=round(result["correlation_r"], 6),
+                p_value=round(result.get("adjusted_p", result["correlation_p"]), 6),
                 method="pearson",
                 lag_days=result["lag_days"],
                 observation_count=result["observation_count"],
@@ -513,6 +556,67 @@ def _build_candidates(
 
 
 # ─── Step 11: Store in Neo4j ─────────────────────────────────────────
+
+
+def _replace_candidates_atomic(
+    graph: GraphStorage,
+    candidates: list[CorrelationCandidate],
+    window_days: int,
+) -> tuple[int, int]:
+    """Atomically replace old candidates with new ones.
+
+    Uses a temporary status to prevent data loss if the store step fails:
+    1. Store new candidates with status 'candidate_pending'
+    2. Delete old candidates (status='candidate') for this window
+    3. Promote 'candidate_pending' → 'candidate'
+
+    If step 1 fails, old candidates remain untouched.
+    If step 2 fails, both old and new exist (duplicates, not data loss).
+    If step 3 fails, pending candidates are in the graph and can be
+    promoted on the next run.
+    """
+    if not candidates:
+        cleared = _clear_old_candidates(graph, window_days)
+        return 0, cleared
+
+    # Step 1: Store new candidates with pending status
+    batch = []
+    for c in candidates:
+        props = c.to_neo4j_properties()
+        props["status"] = "candidate_pending"
+        batch.append({
+            "a_id": c.entity_a_id,
+            "b_id": c.entity_b_id,
+            "lag": c.lag_days,
+            "props": props,
+        })
+
+    store_query = """
+        UNWIND $batch AS item
+        MATCH (a {id: item.a_id})
+        MATCH (b {id: item.b_id})
+        MERGE (a)-[r:CORRELATES_WITH {lag_days: item.lag}]->(b)
+        SET r += item.props
+        RETURN count(r) AS stored
+    """
+    result = graph.run_query(store_query, {"batch": batch})
+    stored = result[0]["stored"] if result else 0
+
+    # Step 2: Delete old candidates (only status='candidate', not pending)
+    cleared = _clear_old_candidates(graph, window_days)
+
+    # Step 3: Promote pending → candidate
+    promote_query = """
+        MATCH ()-[r:CORRELATES_WITH {
+            status: 'candidate_pending',
+            window_days: $window_days
+        }]->()
+        SET r.status = 'candidate'
+        RETURN count(r) AS promoted
+    """
+    graph.run_query(promote_query, {"window_days": window_days})
+
+    return stored, cleared
 
 
 def _clear_old_candidates(graph: GraphStorage, window_days: int) -> int:

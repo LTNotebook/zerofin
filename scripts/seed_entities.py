@@ -1589,8 +1589,38 @@ STRUCTURAL_RELATIONSHIPS: list[tuple[str, str, str, str, str, dict]] = [
     ("Company", "NFLX", "Sector", "COMMUNICATION_SERVICES", "BELONGS_TO", {"source": "seed"}),
     ("Company", "DIS", "Sector", "COMMUNICATION_SERVICES", "BELONGS_TO", {"source": "seed"}),
     ("Company", "VZ", "Sector", "COMMUNICATION_SERVICES", "BELONGS_TO", {"source": "seed"}),
+    # Energy (remaining)
+    ("Company", "OXY", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "MPC", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "PSX", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "KMI", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
+    # Healthcare (remaining)
+    ("Company", "MRNA", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "AMGN", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "MRK", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "GILD", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "REGN", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "VRTX", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "BIIB", "Sector", "HEALTHCARE", "BELONGS_TO", {"source": "seed"}),
+    # Consumer Discretionary (remaining)
+    ("Company", "MCD", "Sector", "CONSUMER_DISCRETIONARY", "BELONGS_TO", {"source": "seed"}),
+    # Consumer Staples (remaining)
+    ("Company", "PG", "Sector", "CONSUMER_STAPLES", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "KO", "Sector", "CONSUMER_STAPLES", "BELONGS_TO", {"source": "seed"}),
+    # Real Estate
+    ("Company", "PLD", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "AMT", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "EQIX", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "DLR", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "WELL", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "SPG", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "O", "Sector", "REAL_ESTATE", "BELONGS_TO", {"source": "seed"}),
     # Utilities
     ("Company", "CEG", "Sector", "UTILITIES", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "NEE", "Sector", "UTILITIES", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "VST", "Sector", "UTILITIES", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "SO", "Sector", "UTILITIES", "BELONGS_TO", {"source": "seed"}),
+    ("Company", "DUK", "Sector", "UTILITIES", "BELONGS_TO", {"source": "seed"}),
     # ── LOCATED_IN: International ETFs → Country ───────────────────────
     ("Asset", "EWJ", "Country", "JAPAN", "LOCATED_IN", {"source": "seed"}),
     ("Asset", "FXI", "Country", "CHINA", "LOCATED_IN", {"source": "seed"}),
@@ -1742,7 +1772,7 @@ def main() -> None:
 
         # ── Batch create structural relationships ─────────────────────
         relationship_batch = []
-        for from_label, from_id, to_label, to_id, rel_type, props in STRUCTURAL_RELATIONSHIPS:
+        for _, from_id, _, to_id, rel_type, props in STRUCTURAL_RELATIONSHIPS:
             relationship_batch.append({
                 "from_id": from_id,
                 "to_id": to_id,

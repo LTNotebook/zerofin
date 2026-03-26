@@ -280,6 +280,9 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "TSLA":  {"sector": "XLY"},
     "HD":    {"sector": "XLY"},
     "MCD":   {"sector": "XLY"},
+    # Chinese ADRs — use KWEB (China internet ETF) as sector proxy
+    "BABA":  {"sector": "KWEB"},
+    "PDD":   {"sector": "KWEB"},
     # Financials
     "JPM":   {"sector": "XLF"},
     "GS":    {"sector": "XLF"},
@@ -1094,5 +1097,15 @@ FRED_INDICATORS: dict[str, FredMeta] = {
 NON_DAILY_INDICATORS: set[str] = {
     series_id
     for series_id, meta in FRED_INDICATORS.items()
-    if meta["frequency"] in ("monthly", "quarterly", "weekly")
+    if meta["frequency"] in ("monthly", "quarterly")
+}
+
+# Indicators that go through the monthly pipeline — includes weekly,
+# monthly, and quarterly series. Separate from NON_DAILY_INDICATORS
+# because the daily pipeline can handle weekly data (forward-fill is
+# only 1-4 days) but monthly/quarterly can't be forward-filled daily.
+MONTHLY_PIPELINE_INDICATORS: set[str] = {
+    series_id
+    for series_id, meta in FRED_INDICATORS.items()
+    if meta["frequency"] in ("weekly", "monthly", "quarterly")
 }

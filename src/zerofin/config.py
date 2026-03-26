@@ -8,9 +8,13 @@ Other modules import `settings` from this file instead of reading
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 # Walk up from this file to find the project root where .env lives
 # src/zerofin/config.py -> src/zerofin -> src -> project root
@@ -71,6 +75,11 @@ class Settings(BaseSettings):
     # Run Spearman alongside Pearson as a sanity check
     CORRELATION_SPEARMAN_CHECK: bool = True
 
+    # Magnitude stability ratio for monthly filter — the weakest half-window
+    # correlation must be at least this fraction of the full-window strength.
+    # 0.4 = weakest half must be >= 40% of full strength.
+    MAGNITUDE_STABILITY_RATIO: float = 0.4
+
     # Starting confidence for newly discovered correlations.
     # Starts neutral at 0.5 — validation raises or lowers it.
     CORRELATION_INITIAL_CONFIDENCE: float = 0.5
@@ -103,6 +112,19 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",  # Don't crash if .env has extra variables
     }
+
+    @model_validator(mode="after")
+    def _warn_empty_db_passwords(self) -> Settings:
+        """Log a warning if database passwords are empty."""
+        if not self.POSTGRES_PASSWORD:
+            logger.warning(
+                "POSTGRES_PASSWORD is empty — set it in .env for production"
+            )
+        if not self.NEO4J_PASSWORD:
+            logger.warning(
+                "NEO4J_PASSWORD is empty — set it in .env for production"
+            )
+        return self
 
     def postgres_connection_params(self) -> dict[str, str | int]:
         """Return Postgres connection parameters as separate keys.

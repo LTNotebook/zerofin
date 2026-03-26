@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -296,10 +297,16 @@ class PriceCollector(BaseCollector):
 
             # yf.download() is the batch API — much faster than calling
             # yf.Ticker().history() one at a time.
+            # Retry once on failure per CLAUDE.md conventions.
             data = yf.download(self.tickers, period=period)
 
             if data.empty:
-                logger.warning("yf.download returned no data for any ticker")
+                logger.warning("yf.download returned empty — retrying once")
+                time.sleep(2)
+                data = yf.download(self.tickers, period=period)
+
+            if data.empty:
+                logger.warning("yf.download returned no data after retry")
                 return self._build_summary(
                     stored=0,
                     failed=0,
@@ -308,13 +315,20 @@ class PriceCollector(BaseCollector):
                 )
 
         except Exception as download_error:
-            logger.error("Batch download failed: %s", download_error)
-            return self._build_summary(
-                stored=0,
-                failed=0,
-                tickers_ok=0,
-                tickers_failed=len(self.tickers),
-            )
+            logger.warning("Batch download failed: %s — retrying once", download_error)
+            try:
+                time.sleep(2)
+                data = yf.download(self.tickers, period=period)
+                if data.empty:
+                    raise ValueError("Retry returned empty data")
+            except Exception as retry_error:
+                logger.error("Batch download failed after retry: %s", retry_error)
+                return self._build_summary(
+                    stored=0,
+                    failed=0,
+                    tickers_ok=0,
+                    tickers_failed=len(self.tickers),
+                )
 
         # If we only want the latest day, slice to just the last row.
         if latest_only:

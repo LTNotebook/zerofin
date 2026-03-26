@@ -22,7 +22,13 @@ logger = logging.getLogger(__name__)
 
 # Tickers that need percentage change instead of log returns.
 # VIX can spike but never goes to zero, so pct change works.
-VOLATILITY_TICKERS = {"^VIX"}
+VOLATILITY_TICKERS = {"^VIX", "^VVIX", "^MOVE", "^GVZ", "^OVX"}
+
+# Yield index tickers from yfinance — these are interest rate levels
+# (e.g., 4.5% for 10-year yield) and need first differences, not log returns.
+# Log returns on yield levels conflate basis-point moves with multiplicative
+# price changes, which makes no financial sense.
+YIELD_INDEX_TICKERS = {"^TNX", "^TYX", "^FVX", "^IRX"}
 
 # Minimum variance threshold — series with std below this are treated
 # as constant (zero information) and excluded from analysis.
@@ -64,6 +70,11 @@ def _compute_transforms(wide_df: pl.DataFrame) -> pl.DataFrame:
                 # Percentage change for volatility indices
                 shifted = series.shift(1)
                 transformed = (series - shifted) / shifted.replace(0, None)
+            elif entity_id in YIELD_INDEX_TICKERS:
+                # First differences for yield indices — same as FRED rate
+                # indicators. A 2bp move from 4.50% to 4.52% should be 0.02,
+                # not ln(4.52/4.50).
+                transformed = series.diff()
             else:
                 # Log returns for everything else: stocks, ETFs, commodities, crypto
                 transformed = _log_returns(series)

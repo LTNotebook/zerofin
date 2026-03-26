@@ -53,8 +53,9 @@ from zerofin.storage.postgres import PostgresStorage
 
 logger = logging.getLogger(__name__)
 
-# Minimum observations needed for reliable precision matrix estimation
-MIN_PRECISION_OBS = 10
+# Minimum observations needed for reliable precision matrix estimation.
+# At least 30 — standard threshold for reasonable covariance estimates.
+MIN_PRECISION_OBS = 30
 
 # Minimum variables needed (partial correlation needs at least 3)
 MIN_PRECISION_VARS = 3
@@ -236,8 +237,8 @@ def run_partial_correlation_pipeline(
             min(r["entity_a"], r["entity_b"]),
             max(r["entity_a"], r["entity_b"]),
         )
-        if pair not in seen_pairs or abs(r["pearson_r"]) > abs(
-            seen_pairs[pair]["pearson_r"]
+        if pair not in seen_pairs or abs(r["correlation_r"]) > abs(
+            seen_pairs[pair]["correlation_r"]
         ):
             seen_pairs[pair] = r
 
@@ -259,10 +260,10 @@ def run_partial_correlation_pipeline(
     # Split into tiers
     tier1_threshold = settings.PARTIAL_CORRELATION_TIER1
     tier1_results = [
-        r for r in results if abs(r["pearson_r"]) >= tier1_threshold
+        r for r in results if abs(r["correlation_r"]) >= tier1_threshold
     ]
     tier2_results = [
-        r for r in results if abs(r["pearson_r"]) < tier1_threshold
+        r for r in results if abs(r["correlation_r"]) < tier1_threshold
     ]
 
     logger.info(
@@ -456,7 +457,7 @@ def _fit_glasso_ebic(
     # would do this internally, but we need the centered covariance for
     # EBIC scoring to be consistent with the precision matrix
     data_centered = data - data.mean(axis=0)
-    emp_cov = np.cov(data_centered, rowvar=False)
+    emp_cov = np.cov(data_centered, rowvar=False, ddof=0)
 
     # Generate alpha range (log-spaced from small to large)
     # Small alpha = dense graph, large alpha = sparse graph
@@ -521,8 +522,13 @@ def _fit_glasso_ebic(
                     best_ebic = ebic
                     best_precision = precision
 
-            except Exception:
-                # Some alpha values may not converge — skip them
+            except (
+                FloatingPointError,
+                ValueError,
+                np.linalg.LinAlgError,
+            ):
+                # Numerical failures at extreme alpha values are expected —
+                # singular matrices, convergence issues, etc. Skip and try next.
                 continue
 
     if best_precision is not None:
@@ -580,8 +586,8 @@ def _extract_significant_pairs(
         results.append({
             "entity_a": col_a,
             "entity_b": col_b,
-            "pearson_r": float(r),
-            "pearson_p": 0.0,  # glasso handles significance via EBIC
+            "correlation_r": float(r),
+            "correlation_p": 0.0,  # glasso handles significance via EBIC
             "lag_days": 0,
             "observation_count": n_obs,
         })
@@ -617,7 +623,7 @@ def _build_partial_candidates(
                 entity_a_id=a_id,
                 entity_b_type=b_type,
                 entity_b_id=b_id,
-                correlation=round(result["pearson_r"], 6),
+                correlation=round(result["correlation_r"], 6),
                 # p_value=0.0 — EBIC handles significance, not p-tests
                 p_value=0.0,
                 method="partial",

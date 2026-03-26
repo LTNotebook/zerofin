@@ -49,17 +49,17 @@ def _apply_fdr_correction(results: list[dict]) -> list[dict]:
         return []
 
     # Sort by p-value (smallest first)
-    sorted_results = sorted(results, key=lambda r: r["pearson_p"])
+    sorted_results = sorted(results, key=lambda r: r["correlation_p"])
     m = len(sorted_results)
 
     # Benjamini-Hochberg: adjusted_p = p * m / rank
     # Walk backwards to enforce monotonicity (each adjusted_p <= the one after it)
     adjusted_p_values = [0.0] * m
-    adjusted_p_values[m - 1] = sorted_results[m - 1]["pearson_p"]
+    adjusted_p_values[m - 1] = sorted_results[m - 1]["correlation_p"]
 
     for i in range(m - 2, -1, -1):
         rank = i + 1
-        raw_adjusted = sorted_results[i]["pearson_p"] * m / rank
+        raw_adjusted = sorted_results[i]["correlation_p"] * m / rank
         # Enforce monotonicity: can't be larger than the next one
         adjusted_p_values[i] = min(raw_adjusted, adjusted_p_values[i + 1])
 
@@ -229,6 +229,7 @@ def _bootstrap_ci_excludes_zero(
     a: np.ndarray,
     b: np.ndarray,
     n_boot: int = 1000,
+    seed: int = 42,
 ) -> bool:
     """Run Spearman 1,000 times on random samples.
 
@@ -238,12 +239,16 @@ def _bootstrap_ci_excludes_zero(
     Uses vectorized numpy instead of a Python loop: all 1,000
     bootstrap index sets are generated at once, ranks are computed
     in bulk, and correlations are calculated via matrix operations.
+
+    Args:
+        seed: RNG seed for reproducibility. Override in tests to
+              check sensitivity to resampling.
     """
     n = len(a)
     if n < 6:
         return False
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
 
     # Generate all bootstrap indices at once: shape (n_boot, n)
     # Each row is one bootstrap sample's indices
@@ -333,13 +338,13 @@ def _tercile_consistent(a: np.ndarray, b: np.ndarray) -> bool:
 def _magnitude_stable(
     a: np.ndarray,
     b: np.ndarray,
-    threshold: float = 0.4,
 ) -> bool:
     """Is the strength roughly similar across halves?
 
     If the overall is 0.80 but one half is 0.05 and the other
     is 0.95, the relationship only exists in one time period.
-    The weakest half must be at least 40% of the full strength.
+    The weakest half must be at least MAGNITUDE_STABILITY_RATIO
+    of the full strength (default 40%).
     """
     r_full, _ = stats.spearmanr(a, b)
     if math.isnan(r_full) or abs(r_full) < 0.01:
@@ -356,7 +361,7 @@ def _magnitude_stable(
         return False
 
     min_half = min(abs(r1), abs(r2))
-    return min_half >= threshold * abs(r_full)
+    return min_half >= settings.MAGNITUDE_STABILITY_RATIO * abs(r_full)
 
 
 # ─── Gate 2: Entity type plausibility filter ─────────────────────────
@@ -448,10 +453,22 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     # Currency ETFs
     "UUP": "currency", "FXE": "currency",
     "FXY": "currency", "DX-Y.NYB": "currency",
+    # GICS Sector ETFs
+    "XLK": "sector_etf", "XLF": "sector_etf", "XLV": "sector_etf",
+    "XLE": "sector_etf", "XLI": "sector_etf", "XLY": "sector_etf",
+    "XLP": "sector_etf", "XLU": "sector_etf", "XLB": "sector_etf",
+    "XLRE": "sector_etf", "XLC": "sector_etf",
+    # Sub-sector / thematic ETFs
+    "SMH": "sector_etf", "AIQ": "sector_etf", "BOTZ": "sector_etf",
+    "ROBO": "sector_etf", "ITA": "sector_etf", "HACK": "sector_etf",
+    "IBB": "sector_etf", "XHB": "sector_etf", "KRE": "sector_etf",
+    "RSP": "sector_etf", "JETS": "sector_etf", "BDRY": "sector_etf",
+    # Factor ETFs
+    "MTUM": "factor_etf", "QUAL": "factor_etf", "USMV": "factor_etf",
     # US indices
     "^GSPC": "us_index", "^DJI": "us_index", "^IXIC": "us_index",
     "^NDX": "us_index", "^RUT": "us_index", "^W5000": "us_index",
-    "^GSPTSE": "us_index",
+    "^GSPTSE": "ca_index",
 }
 
 # A = Allowed, R = Review (passes but flagged), B = Blocked

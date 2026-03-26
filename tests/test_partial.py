@@ -228,8 +228,8 @@ class TestExtractSignificantPairs:
 
         assert len(results) >= 1
         for r in results:
-            assert "pearson_p" in r
-            assert r["pearson_p"] == 0.0
+            assert "correlation_p" in r
+            assert r["correlation_p"] == 0.0
 
     def test_observation_count_passed_through(self) -> None:
         """Results should carry the actual n_obs, not window_days."""
@@ -365,8 +365,8 @@ class TestTierSplit:
             {
                 "entity_a": "asset:A",
                 "entity_b": "asset:B",
-                "pearson_r": 0.25,
-                "pearson_p": 0.0,
+                "correlation_r": 0.25,
+                "correlation_p": 0.0,
                 "lag_days": 0,
                 "observation_count": 200,
             }
@@ -386,8 +386,8 @@ class TestTierSplit:
             {
                 "entity_a": "asset:A",
                 "entity_b": "asset:B",
-                "pearson_r": 0.12,
-                "pearson_p": 0.0,
+                "correlation_r": 0.12,
+                "correlation_p": 0.0,
                 "lag_days": 0,
                 "observation_count": 200,
             }
@@ -408,8 +408,8 @@ class TestTierSplit:
             {
                 "entity_a": "asset:A",
                 "entity_b": "asset:B",
-                "pearson_r": 0.12,
-                "pearson_p": 0.0,
+                "correlation_r": 0.12,
+                "correlation_p": 0.0,
                 "lag_days": 0,
                 "observation_count": 200,
             }
@@ -431,10 +431,10 @@ class TestMergeDedup:
         # Simulate two results for the same pair
         results = [
             {"entity_a": "asset:A", "entity_b": "asset:B",
-             "pearson_r": 0.20, "pearson_p": 0.0,
+             "correlation_r": 0.20, "correlation_p": 0.0,
              "lag_days": 0, "observation_count": 200},
             {"entity_a": "asset:A", "entity_b": "asset:B",
-             "pearson_r": 0.30, "pearson_p": 0.0,
+             "correlation_r": 0.30, "correlation_p": 0.0,
              "lag_days": 0, "observation_count": 200},
         ]
 
@@ -445,11 +445,11 @@ class TestMergeDedup:
                 min(r["entity_a"], r["entity_b"]),
                 max(r["entity_a"], r["entity_b"]),
             )
-            if pair not in seen_pairs or abs(r["pearson_r"]) > abs(
-                seen_pairs[pair]["pearson_r"]
+            if pair not in seen_pairs or abs(r["correlation_r"]) > abs(
+                seen_pairs[pair]["correlation_r"]
             ):
                 seen_pairs[pair] = r
 
         merged = list(seen_pairs.values())
         assert len(merged) == 1
-        assert abs(merged[0]["pearson_r"]) == 0.30
+        assert abs(merged[0]["correlation_r"]) == 0.30

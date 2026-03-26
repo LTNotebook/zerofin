@@ -24,33 +24,18 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
+import time
 from types import TracebackType
 from typing import Any
 
 import neo4j
 
 from zerofin.config import settings
+from zerofin.constants import ENTITY_LABELS
 
 # One logger for the whole module — messages show up as "zerofin.storage.graph"
 logger = logging.getLogger(__name__)
-
-# ── Every node label the system supports ──────────────────────────────
-# These map to the 12 entity types from the FinDKG ontology.
-# If you add a new entity type, add it here AND re-run setup_indexes().
-ENTITY_LABELS: list[str] = [
-    "Asset",
-    "Indicator",
-    "Sector",
-    "Event",
-    "Company",
-    "Index",
-    "Commodity",
-    "Currency",
-    "Country",
-    "CentralBank",
-    "GovernmentBody",
-    "Person",
-]
 
 
 class GraphStorage:
@@ -85,16 +70,22 @@ class GraphStorage:
         """
         logger.info("Connecting to Neo4j at %s", settings.NEO4J_URI)
 
-        # Create the driver — this doesn't actually connect yet, it just
-        # stores the config. verify_connectivity() does the real handshake.
+        # Create the driver with a connection timeout so we don't hang
+        # indefinitely if Neo4j is unreachable.
         self._driver = neo4j.GraphDatabase.driver(
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+            connection_timeout=30,
         )
 
-        # Actually reach out and confirm the server is there.
-        # This will raise an exception if Neo4j is down.
-        self._driver.verify_connectivity()
+        # Verify connectivity with one retry — transient failures happen.
+        try:
+            self._driver.verify_connectivity()
+        except Exception:
+            logger.warning("Neo4j connection failed — retrying in 2s")
+            time.sleep(2)
+            self._driver.verify_connectivity()
+
         logger.info("Connected to Neo4j successfully")
 
     def close(self) -> None:
@@ -513,12 +504,26 @@ class GraphStorage:
     # ── Private helpers ───────────────────────────────────────────────
 
     @staticmethod
+    def _safe_label(label: str) -> str:
+        """Validate and return the label — impossible to use unvalidated.
+
+        This prevents typos from silently creating random node labels
+        in the graph, and guards against Cypher injection since labels
+        are interpolated into f-strings. Returns the label so callers
+        can use it directly: f"MERGE (n:{self._safe_label(label)} ...)".
+        """
+        if label not in ENTITY_LABELS:
+            raise ValueError(
+                f"Unknown entity label '{label}'. "
+                f"Must be one of: {ENTITY_LABELS}"
+            )
+        return label
+
+    @staticmethod
     def _validate_label(label: str) -> None:
         """Raise ValueError if the label isn't in our allowed list.
 
-        This prevents typos from silently creating random node labels
-        in the graph. If you need a new entity type, add it to
-        ENTITY_LABELS at the top of this file.
+        Kept for backwards compatibility — prefer _safe_label() for new code.
         """
         if label not in ENTITY_LABELS:
             raise ValueError(
@@ -527,16 +532,30 @@ class GraphStorage:
             )
 
     @staticmethod
+    def _safe_relationship_type(rel_type: str) -> str:
+        """Validate and return the relationship type.
+
+        Must start with a letter and contain only uppercase letters and
+        underscores (minimum 2 characters). Returns the type so callers
+        can use it directly in f-strings.
+        """
+        if not re.match(r"^[A-Z][A-Z_]{1,}$", rel_type):
+            raise ValueError(
+                f"Invalid relationship type '{rel_type}'. "
+                f"Must be UPPER_SNAKE_CASE, starting with a letter, "
+                f"at least 2 characters."
+            )
+        return rel_type
+
+    @staticmethod
     def _validate_relationship_type(rel_type: str) -> None:
         """Raise ValueError if the relationship type has invalid characters.
 
-        Relationship types should be UPPER_SNAKE_CASE only. This prevents
-        Cypher injection through malformed relationship type strings.
+        Kept for backwards compatibility — prefer _safe_relationship_type().
         """
-        import re
-
-        if not re.match(r"^[A-Z_]+$", rel_type):
+        if not re.match(r"^[A-Z][A-Z_]{1,}$", rel_type):
             raise ValueError(
                 f"Invalid relationship type '{rel_type}'. "
-                f"Must be UPPER_SNAKE_CASE (letters and underscores only)."
+                f"Must be UPPER_SNAKE_CASE, starting with a letter, "
+                f"at least 2 characters."
             )
