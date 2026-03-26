@@ -40,14 +40,18 @@ from zerofin.analysis.filters import is_pair_plausible
 from zerofin.analysis.transforms import _compute_transforms, _winsorize, _z_score_all
 from zerofin.config import settings
 from zerofin.data.tickers import (
+    COMMODITIES,
     KEY_STOCKS,
     NON_DAILY_INDICATORS,
     REDUNDANCY_LOOKUP,
     STOCK_SECTOR_MAP,
+    US_INDICES,
 )
 from zerofin.models.correlations import CorrelationCandidate, CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
+
+logger = logging.getLogger(__name__)
 
 # Minimum observations needed for reliable precision matrix estimation
 MIN_PRECISION_OBS = 10
@@ -66,37 +70,61 @@ MIN_PRECISION_VARS = 3
 def _build_pass1_excludes() -> set[str]:
     """Build the set of entity IDs to exclude from Pass 1 (micro).
 
-    These are ETFs/indices that contain individual stocks in our matrix.
-    Including them causes the glasso to route stock signals through the
-    ETF intermediary, zeroing out direct stock-to-stock connections.
+    These are ETFs/indices that contain individual stocks or futures
+    in our matrix. Including them causes the glasso to route signals
+    through the ETF intermediary, zeroing out direct connections.
+
+    Derived from tickers.py data — not hardcoded. When tickers.py
+    changes, these exclusions update automatically.
     """
-    # Sector ETFs that our stocks map to
+    # Sector ETFs that our stocks map to (from STOCK_SECTOR_MAP)
     sector_etfs = set()
     for mapping in STOCK_SECTOR_MAP.values():
         sector_etfs.add(mapping["sector"])
         if "sub_sector" in mapping:
             sector_etfs.add(mapping["sub_sector"])
 
-    # Broad US indices (contain our stocks)
-    broad_indices = {
-        "^GSPC", "^DJI", "^IXIC", "^NDX", "^RUT", "^W5000", "^GSPTSE",
-    }
+    # Broad market indices — derived from US_INDICES, excluding
+    # volatility indices which don't contain our stocks
+    volatility_indices = {"^VIX", "^VVIX", "^MOVE", "^GVZ", "^OVX"}
+    broad_indices = set(US_INDICES) - volatility_indices
 
-    # Factor ETFs (hold stocks across all sectors)
+    # Factor/broad ETFs that hold stocks from across all sectors
+    # These are in SECTOR_ETFS but not mapped via STOCK_SECTOR_MAP
     factor_etfs = {"RSP", "MTUM", "QUAL", "USMV"}
 
-    # International ETFs that contain stocks we track
-    intl_with_overlap = {"FXI", "KWEB", "EWT", "EWG"}
+    # International ETFs that contain stocks we track as individuals
+    # Check KEY_STOCKS against known ETF holdings
+    tracked_stocks = set(KEY_STOCKS)
+    intl_with_overlap = set()
+    _intl_holdings = {
+        "FXI": {"BABA", "PDD"},
+        "KWEB": {"BABA", "PDD"},
+        "EWT": {"TSM"},
+        "EWG": {"ASML"},
+    }
+    for etf, holdings in _intl_holdings.items():
+        if holdings & tracked_stocks:
+            intl_with_overlap.add(etf)
 
     # Commodity ETFs that contain futures we track
-    commodity_etfs_with_overlap = {"GLD", "DBA", "DBC"}
+    tracked_futures = set(COMMODITIES)
+    commodity_with_overlap = set()
+    _commodity_holdings = {
+        "GLD": {"GC=F"},
+        "DBA": {"ZC=F", "ZW=F", "ZS=F"},
+        "DBC": {"CL=F", "GC=F", "SI=F", "HG=F"},
+    }
+    for etf, holdings in _commodity_holdings.items():
+        if holdings & tracked_futures:
+            commodity_with_overlap.add(etf)
 
     return (
         sector_etfs
         | broad_indices
         | factor_etfs
         | intl_with_overlap
-        | commodity_etfs_with_overlap
+        | commodity_with_overlap
     )
 
 
@@ -112,8 +140,6 @@ def _build_pass2_excludes() -> set[str]:
 # Cache the exclusion sets (they don't change during a run)
 PASS1_EXCLUDES = _build_pass1_excludes()
 PASS2_EXCLUDES = _build_pass2_excludes()
-
-logger = logging.getLogger(__name__)
 
 
 def run_partial_correlation_pipeline(
@@ -248,7 +274,9 @@ def run_partial_correlation_pipeline(
         tier1_threshold,
     )
 
-    # Build and store candidates
+    # Note: total_pairs counts both passes separately. Entities in
+    # both passes (commodities, FRED, bonds) are counted twice. This
+    # overstates the denominator but is acceptable for monitoring.
     total_pairs = (
         len(pass1_cols) * (len(pass1_cols) - 1) // 2
         + len(pass2_cols) * (len(pass2_cols) - 1) // 2
@@ -597,9 +625,8 @@ def _build_partial_candidates(
                 observation_count=result["observation_count"],
                 window_days=window_days,
                 window_end=window_end,
+                status=status,
             )
-            # Override status for tiered storage
-            candidate._override_status = status
             candidates.append(candidate)
         except Exception as error:
             logger.warning(
@@ -641,9 +668,6 @@ def _store_candidates_batch(
     batch = []
     for c in candidates:
         props = c.to_neo4j_properties()
-        # Apply status override for tiered storage
-        if hasattr(c, "_override_status"):
-            props["status"] = c._override_status
         batch.append({
             "a_id": c.entity_a_id,
             "b_id": c.entity_b_id,

@@ -83,6 +83,13 @@ class CorrelationCandidate(BaseModel):
     # When the window ended (so we know how fresh this is)
     window_end: pendulum.DateTime = Field(description="End date of the analysis window")
 
+    # --- Storage status ---
+    # "candidate" = active in graph, "pending_verification" = waiting for AI
+    status: str = Field(
+        default="candidate",
+        description="Storage status: candidate or pending_verification",
+    )
+
     # --- Derived fields (set automatically by validators) ---
     # Absolute strength: 0.0 to 1.0 (ignores direction)
     strength: float = Field(default=0.0, description="Absolute correlation strength")
@@ -157,7 +164,7 @@ class CorrelationCandidate(BaseModel):
             "window_end": self.window_end.to_iso8601_string(),
             "confidence": settings.CORRELATION_INITIAL_CONFIDENCE,
             "source": "statistical",
-            "status": "candidate",
+            "status": self.status,
             "times_tested": 0,
             "times_confirmed": 0,
             "valid_from": pendulum.now("UTC").to_iso8601_string(),

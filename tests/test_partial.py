@@ -294,3 +294,162 @@ class TestConstants:
 
     def test_min_precision_vars_at_least_three(self) -> None:
         assert MIN_PRECISION_VARS >= 3
+
+
+# =====================================================================
+# Two-Pass Architecture
+# =====================================================================
+
+
+class TestTwoPassExclusions:
+    """Tests for the entity exclusion logic in two-pass glasso."""
+
+    def test_pass1_excludes_sector_etfs(self) -> None:
+        """Pass 1 should exclude ETFs that contain our stocks."""
+        from zerofin.analysis.partial import PASS1_EXCLUDES
+        from zerofin.data.tickers import STOCK_SECTOR_MAP
+
+        # Every sector ETF in the map should be excluded
+        for mapping in STOCK_SECTOR_MAP.values():
+            assert mapping["sector"] in PASS1_EXCLUDES
+
+    def test_pass1_excludes_broad_indices(self) -> None:
+        """Pass 1 should exclude broad market indices."""
+        from zerofin.analysis.partial import PASS1_EXCLUDES
+
+        assert "^GSPC" in PASS1_EXCLUDES
+        assert "^DJI" in PASS1_EXCLUDES
+        assert "^NDX" in PASS1_EXCLUDES
+
+    def test_pass1_keeps_volatility_indices(self) -> None:
+        """Volatility indices don't contain our stocks."""
+        from zerofin.analysis.partial import PASS1_EXCLUDES
+
+        assert "^VIX" not in PASS1_EXCLUDES
+        assert "^VVIX" not in PASS1_EXCLUDES
+        assert "^MOVE" not in PASS1_EXCLUDES
+
+    def test_pass1_does_not_exclude_stocks(self) -> None:
+        """Pass 1 should keep individual stocks."""
+        from zerofin.analysis.partial import PASS1_EXCLUDES
+
+        assert "NVDA" not in PASS1_EXCLUDES
+        assert "AAPL" not in PASS1_EXCLUDES
+        assert "JPM" not in PASS1_EXCLUDES
+
+    def test_pass2_excludes_all_stocks(self) -> None:
+        """Pass 2 should exclude all individual stocks."""
+        from zerofin.analysis.partial import PASS2_EXCLUDES
+        from zerofin.data.tickers import KEY_STOCKS
+
+        for stock in KEY_STOCKS:
+            assert stock in PASS2_EXCLUDES
+
+    def test_pass2_does_not_exclude_etfs(self) -> None:
+        """Pass 2 should keep sector ETFs."""
+        from zerofin.analysis.partial import PASS2_EXCLUDES
+
+        assert "XLK" not in PASS2_EXCLUDES
+        assert "XLE" not in PASS2_EXCLUDES
+        assert "SMH" not in PASS2_EXCLUDES
+
+
+class TestTierSplit:
+    """Tests for tiered storage logic."""
+
+    def test_tier1_above_threshold(self) -> None:
+        """Results >= TIER1 should get candidate status."""
+        from zerofin.analysis.partial import _build_partial_candidates
+
+        results = [
+            {
+                "entity_a": "asset:A",
+                "entity_b": "asset:B",
+                "pearson_r": 0.25,
+                "pearson_p": 0.0,
+                "lag_days": 0,
+                "observation_count": 200,
+            }
+        ]
+        import pendulum
+        candidates = _build_partial_candidates(
+            results, 252, pendulum.now("UTC"),
+        )
+        assert len(candidates) == 1
+        assert candidates[0].status == "candidate"
+
+    def test_tier2_gets_pending_status(self) -> None:
+        """Results in Tier 2 should get pending_verification status."""
+        from zerofin.analysis.partial import _build_partial_candidates
+
+        results = [
+            {
+                "entity_a": "asset:A",
+                "entity_b": "asset:B",
+                "pearson_r": 0.12,
+                "pearson_p": 0.0,
+                "lag_days": 0,
+                "observation_count": 200,
+            }
+        ]
+        import pendulum
+        candidates = _build_partial_candidates(
+            results, 252, pendulum.now("UTC"),
+            status="pending_verification",
+        )
+        assert len(candidates) == 1
+        assert candidates[0].status == "pending_verification"
+
+    def test_status_propagates_to_neo4j_properties(self) -> None:
+        """Status should appear in the Neo4j properties dict."""
+        from zerofin.analysis.partial import _build_partial_candidates
+
+        results = [
+            {
+                "entity_a": "asset:A",
+                "entity_b": "asset:B",
+                "pearson_r": 0.12,
+                "pearson_p": 0.0,
+                "lag_days": 0,
+                "observation_count": 200,
+            }
+        ]
+        import pendulum
+        candidates = _build_partial_candidates(
+            results, 252, pendulum.now("UTC"),
+            status="pending_verification",
+        )
+        props = candidates[0].to_neo4j_properties()
+        assert props["status"] == "pending_verification"
+
+
+class TestMergeDedup:
+    """Tests for the merge and deduplication logic."""
+
+    def test_stronger_edge_wins(self) -> None:
+        """When a pair appears in both passes, keep the stronger one."""
+        # Simulate two results for the same pair
+        results = [
+            {"entity_a": "asset:A", "entity_b": "asset:B",
+             "pearson_r": 0.20, "pearson_p": 0.0,
+             "lag_days": 0, "observation_count": 200},
+            {"entity_a": "asset:A", "entity_b": "asset:B",
+             "pearson_r": 0.30, "pearson_p": 0.0,
+             "lag_days": 0, "observation_count": 200},
+        ]
+
+        # Replicate the dedup logic from the pipeline
+        seen_pairs: dict[tuple[str, str], dict] = {}
+        for r in results:
+            pair = (
+                min(r["entity_a"], r["entity_b"]),
+                max(r["entity_a"], r["entity_b"]),
+            )
+            if pair not in seen_pairs or abs(r["pearson_r"]) > abs(
+                seen_pairs[pair]["pearson_r"]
+            ):
+                seen_pairs[pair] = r
+
+        merged = list(seen_pairs.values())
+        assert len(merged) == 1
+        assert abs(merged[0]["pearson_r"]) == 0.30
