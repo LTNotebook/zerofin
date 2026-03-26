@@ -75,9 +75,13 @@ class Settings(BaseSettings):
     # Starts neutral at 0.5 — validation raises or lowers it.
     CORRELATION_INITIAL_CONFIDENCE: float = 0.5
 
-    # Partial correlation — threshold is lower than Pearson because
-    # controlling for all other variables shrinks the values.
-    PARTIAL_CORRELATION_THRESHOLD: float = 0.18
+    # Partial correlation — tiered thresholds
+    # Tier 1 (>= active): goes straight into graph as candidate
+    # Tier 2 (pending floor to active): stored as pending_verification
+    #   for DeepSeek to confirm later
+    # Below pending floor: not stored
+    PARTIAL_CORRELATION_TIER1: float = 0.15
+    PARTIAL_CORRELATION_TIER2_FLOOR: float = 0.10
 
     # EBIC gamma — controls sparsity aggressiveness for Graphical Lasso.
     # 0.5 = standard for very high-dimensional data (p >> n).
@@ -85,8 +89,9 @@ class Settings(BaseSettings):
     # that downstream AI verification handles.
     EBIC_GAMMA: float = 0.1
 
-    # Number of alpha values to test in the EBIC search grid
-    EBIC_N_ALPHAS: int = 50
+    # Number of alpha values to test in the EBIC search grid.
+    # 25 is enough to find the EBIC minimum on a smooth curve.
+    EBIC_N_ALPHAS: int = 25
 
     # Graphical Lasso solver settings
     GLASSO_MAX_ITER: int = 200
