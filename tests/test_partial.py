@@ -216,8 +216,8 @@ class TestExtractSignificantPairs:
         assert ("asset:A", "asset:B") in entity_pairs
         assert ("asset:A", "asset:C") not in entity_pairs
 
-    def test_p_values_are_computed(self) -> None:
-        """Each result should have a p-value."""
+    def test_p_value_is_zero_for_glasso(self) -> None:
+        """Glasso handles significance via EBIC, so p-value is set to 0."""
         matrix, cols = self._make_matrix({
             ("asset:A", "asset:B"): 0.5,
             ("asset:A", "asset:C"): 0.0,
@@ -229,28 +229,7 @@ class TestExtractSignificantPairs:
         assert len(results) >= 1
         for r in results:
             assert "pearson_p" in r
-            assert 0 <= r["pearson_p"] <= 1
-
-    def test_correct_degrees_of_freedom(self) -> None:
-        """P-values should use n_obs - n_vars - 1, not n_obs - 3."""
-        matrix, cols = self._make_matrix({
-            ("asset:A", "asset:B"): 0.3,
-            ("asset:A", "asset:C"): 0.0,
-            ("asset:B", "asset:C"): 0.0,
-        }, 3)
-
-        # With n_obs=200, n_vars=3: df = 200 - 3 - 1 = 196
-        results_large_n = _extract_significant_pairs(
-            matrix, cols, 0.18, 200
-        )
-        # With n_obs=20, n_vars=3: df = 20 - 3 - 1 = 16
-        results_small_n = _extract_significant_pairs(
-            matrix, cols, 0.18, 20
-        )
-
-        # Same correlation but smaller sample should give larger p-value
-        if results_large_n and results_small_n:
-            assert results_small_n[0]["pearson_p"] > results_large_n[0]["pearson_p"]
+            assert r["pearson_p"] == 0.0
 
     def test_observation_count_passed_through(self) -> None:
         """Results should carry the actual n_obs, not window_days."""
