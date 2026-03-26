@@ -6,14 +6,17 @@ move together because they both follow the market. Partial correlation asks:
 "Do A and B still move together after accounting for EVERYTHING else?"
 
 The math:
-    1. Compute a shrunk covariance matrix (Ledoit-Wolf handles the case
-       where we have lots of entities relative to observations)
-    2. Invert it to get the precision matrix
-    3. Convert precision entries to partial correlations:
+    1. Fit Graphical Lasso at multiple alpha values (sparsity levels)
+    2. Select the best alpha using EBIC (Extended BIC) — controls false
+       discovery by penalizing model complexity
+    3. The resulting sparse precision matrix has exact structural zeros
+       for pairs with no direct connection
+    4. Convert nonzero precision entries to partial correlations:
        ρ_ij = -P_ij / sqrt(P_ii * P_jj)
 
-This is one matrix inversion — no loops, no bootstraps. The whole thing
-runs in under a second for 200 entities.
+No post-hoc p-value testing or FDR correction — EBIC handles false
+discovery at the estimation stage. See Research/Glasso FDR Redundancy
+Question.md for why this is correct.
 
 The key difference from the regular pipeline: we do NOT remove market/sector
 beta first. Partial correlation inherently controls for all confounders
@@ -25,15 +28,15 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
 
 import numpy as np
 import pendulum
 import polars as pl
-from scipy import stats
-from sklearn.covariance import LedoitWolf
+from sklearn.covariance import GraphicalLasso
 
 from zerofin.analysis.correlations import _build_wide_dataframe
-from zerofin.analysis.filters import _apply_fdr_correction, is_pair_plausible
+from zerofin.analysis.filters import is_pair_plausible
 from zerofin.analysis.transforms import _compute_transforms, _winsorize, _z_score_all
 from zerofin.config import settings
 from zerofin.data.tickers import NON_DAILY_INDICATORS, REDUNDANCY_LOOKUP
@@ -138,11 +141,12 @@ def run_partial_correlation_pipeline(
         threshold,
     )
 
-    # Step 8: FDR correction
-    results = _apply_fdr_correction(results)
-    logger.info("%d survived FDR correction", len(results))
+    # Note: No FDR correction here. EBIC-tuned glasso already controls
+    # false discovery at the estimation stage. Stacking FDR on top is
+    # statistically invalid (post-selection inference violation).
+    # See: Glasso FDR Redundancy Question.md in Research folder.
 
-    # Step 9: Gate 2 plausibility check
+    # Step 8: Gate 2 plausibility check
     results = [r for r in results if is_pair_plausible(r["entity_a"], r["entity_b"])]
     logger.info("%d survived plausibility filter", len(results))
 
@@ -169,7 +173,7 @@ def run_partial_correlation_pipeline(
     return CorrelationRunSummary(
         total_pairs_tested=total_pairs,
         pairs_above_threshold=len(results),
-        pairs_surviving_fdr=len(results),
+        pairs_surviving_fdr=len(results),  # No FDR for glasso; EBIC handles it
         relationships_stored=stored,
         window_days=window,
         window_end=window_end,
@@ -184,11 +188,13 @@ def _compute_partial_correlation_matrix(
     returns_df: pl.DataFrame,
     entity_cols: list[str],
 ) -> tuple[np.ndarray | None, list[str], int]:
-    """Compute partial correlations via the precision matrix.
+    """Compute partial correlations via a sparse precision matrix.
 
-    Uses Ledoit-Wolf shrinkage to estimate the covariance matrix.
-    This handles the case where we have many entities relative to
-    observations (high-dimensional data) without blowing up.
+    Uses Graphical Lasso with EBIC tuning instead of Ledoit-Wolf.
+    Graphical Lasso enforces sparsity directly — weak connections
+    become exact mathematical zeros, not small numbers we have to
+    threshold. EBIC (Extended BIC) selects the sparsity level,
+    avoiding the over-permissive results that cross-validation gives.
 
     Returns:
         (partial_corr_matrix, valid_column_names, n_obs) or
@@ -209,13 +215,21 @@ def _compute_partial_correlation_matrix(
     if n_obs < MIN_PRECISION_OBS or n_vars < MIN_PRECISION_VARS:
         return None, [], 0
 
-    # Ledoit-Wolf shrinkage covariance estimation
-    # Automatically regularizes the matrix so it's always invertible
-    lw = LedoitWolf()
-    lw.fit(data_clean)
+    # Fit Graphical Lasso with EBIC-selected alpha
+    precision = _fit_glasso_ebic(data_clean, n_obs, n_vars)
 
-    # Precision matrix = inverse of covariance
-    precision = lw.precision_
+    if precision is None:
+        return None, [], 0
+
+    # Count nonzero off-diagonal entries (the edges glasso kept)
+    n_edges = np.count_nonzero(
+        np.triu(precision, k=1)
+    )
+    logger.info(
+        "Graphical Lasso kept %d nonzero edges out of %d possible",
+        n_edges,
+        n_vars * (n_vars - 1) // 2,
+    )
 
     # Convert to partial correlations:
     # ρ_ij = -P_ij / sqrt(P_ii * P_jj)
@@ -232,17 +246,116 @@ def _compute_partial_correlation_matrix(
     return partial_corr, entity_cols, n_obs
 
 
+
+
+def _fit_glasso_ebic(
+    data: np.ndarray,
+    n_obs: int,
+    n_vars: int,
+) -> np.ndarray | None:
+    """Fit Graphical Lasso with EBIC-selected regularization.
+
+    Tests a range of alpha values and picks the one that minimizes:
+        EBIC = -2 * log_likelihood + |E| * log(n) + 4 * gamma * |E| * log(p)
+
+    where |E| is the number of nonzero edges. This penalizes complexity
+    more aggressively than cross-validation, controlling false positives.
+    """
+    # Center data explicitly — GraphicalLasso with assume_centered=False
+    # would do this internally, but we need the centered covariance for
+    # EBIC scoring to be consistent with the precision matrix
+    data_centered = data - data.mean(axis=0)
+    emp_cov = np.cov(data_centered, rowvar=False)
+
+    # Generate alpha range (log-spaced from small to large)
+    # Small alpha = dense graph, large alpha = sparse graph
+    alpha_max = np.max(np.abs(emp_cov - np.diag(np.diag(emp_cov))))
+    alpha_min = alpha_max * settings.GLASSO_ALPHA_RANGE_RATIO
+    alphas = np.logspace(
+        np.log10(alpha_min),
+        np.log10(alpha_max),
+        settings.EBIC_N_ALPHAS,
+    )
+
+    best_ebic = np.inf
+    best_precision = None
+
+    # Suppress convergence warnings — extreme alpha values often don't
+    # converge, which is expected. We skip them and move on.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings(
+            "ignore", message=".*did not converge.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message=".*Objective did not converge.*"
+        )
+
+        for alpha in alphas:
+            try:
+                gl = GraphicalLasso(
+                    alpha=alpha,
+                    mode="cd",
+                    max_iter=settings.GLASSO_MAX_ITER,
+                    tol=settings.GLASSO_CONVERGENCE_TOL,
+                    assume_centered=True,
+                )
+                gl.fit(data_centered)
+
+                precision = gl.precision_
+
+                # Compute log-likelihood using consistent covariance
+                # L = (n/2) * (log|Θ| - trace(S * Θ))
+                sign, log_det = np.linalg.slogdet(precision)
+                if sign <= 0:
+                    continue
+                log_lik = 0.5 * n_obs * (
+                    log_det - np.trace(emp_cov @ precision)
+                )
+
+                # Count nonzero off-diagonal edges
+                n_edges = np.count_nonzero(
+                    np.triu(precision, k=1)
+                )
+
+                # EBIC = -2L + |E|*log(n) + 4*gamma*|E|*log(p)
+                ebic = (
+                    -2 * log_lik
+                    + n_edges * np.log(n_obs)
+                    + 4 * settings.EBIC_GAMMA
+                    * n_edges * np.log(n_vars)
+                )
+
+                if ebic < best_ebic:
+                    best_ebic = ebic
+                    best_precision = precision
+
+            except Exception:
+                # Some alpha values may not converge — skip them
+                continue
+
+    if best_precision is not None:
+        n_edges = np.count_nonzero(np.triu(best_precision, k=1))
+        logger.info(
+            "EBIC selected alpha with %d edges (EBIC=%.1f)",
+            n_edges,
+            best_ebic,
+        )
+
+    return best_precision
+
+
 def _extract_significant_pairs(
     partial_matrix: np.ndarray,
     cols: list[str],
     threshold: float,
     n_obs: int,
 ) -> list[dict]:
-    """Extract pairs above threshold from the partial correlation matrix.
+    """Extract pairs above threshold from the glasso partial correlation matrix.
 
-    Also computes approximate p-values using the Fisher z-transform
-    with correct degrees of freedom for partial correlation:
-    df = n_obs - n_vars - 1 (not n_obs - 3 like bivariate correlation).
+    No p-value computation — EBIC-tuned glasso already controls false
+    discovery at the estimation stage. The nonzero entries ARE the
+    significant edges. We just filter by strength and redundancy.
     """
     n_vars = partial_matrix.shape[0]
 
@@ -258,28 +371,12 @@ def _extract_significant_pairs(
     sig_j = j_idx[above]
     sig_corrs = all_corrs[above]
 
-    # Approximate p-values via Fisher z-transform
-    # For partial correlation: df = n_obs - n_vars - 1
-    # se = 1 / sqrt(df - 2) for the Fisher z-transform
-    df = n_obs - n_vars - 1
-    if df < 3:
-        logger.warning(
-            "Degrees of freedom too low (%d) for reliable p-values",
-            df,
-        )
-        df = 3  # floor to avoid division by zero
-
-    se = 1.0 / np.sqrt(df - 2)
-    z_scores = np.arctanh(np.clip(sig_corrs, -0.9999, 0.9999))
-    p_values = 2 * (1 - stats.norm.cdf(np.abs(z_scores) / se))
-
     # Check redundancy groups
     results = []
     for k in range(len(sig_i)):
         col_a = cols[sig_i[k]]
         col_b = cols[sig_j[k]]
         r = sig_corrs[k]
-        p = p_values[k]
 
         # Skip redundant pairs (same as regular pipeline)
         _, id_a = col_a.split(":", 1)
@@ -293,7 +390,7 @@ def _extract_significant_pairs(
             "entity_a": col_a,
             "entity_b": col_b,
             "pearson_r": float(r),
-            "pearson_p": float(p),
+            "pearson_p": 0.0,  # glasso handles significance via EBIC
             "lag_days": 0,
             "observation_count": n_obs,
         })
@@ -323,7 +420,8 @@ def _build_partial_candidates(
                 entity_b_type=b_type,
                 entity_b_id=b_id,
                 correlation=round(result["pearson_r"], 6),
-                p_value=round(result.get("adjusted_p", result["pearson_p"]), 6),
+                # p_value=0.0 — EBIC handles significance, not p-tests
+                p_value=0.0,
                 method="partial",
                 lag_days=0,
                 observation_count=result["observation_count"],
@@ -404,7 +502,7 @@ def _empty_summary(
     return CorrelationRunSummary(
         total_pairs_tested=0,
         pairs_above_threshold=0,
-        pairs_surviving_fdr=0,
+        pairs_surviving_fdr=0,  # No FDR for glasso; EBIC handles it
         relationships_stored=0,
         window_days=window,
         window_end=window_end,
