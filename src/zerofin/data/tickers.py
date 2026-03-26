@@ -408,6 +408,11 @@ REDUNDANCY_GROUPS: dict[str, dict] = {
         "members": ["AIQ", "BOTZ", "ROBO"],
         "reason": "All track AI/robotics/automation themes; high overlap in holdings and behavior",
     },
+    "corporate_profits": {
+        "representative": "CPGDPAI",
+        "members": ["CPGDPAI", "CP"],
+        "reason": "Both measure corporate profits after tax; CPGDPAI includes IVA+CCAdj",
+    },
 }
 
 # Build a quick lookup: ticker -> group name (for fast filtering in correlation engine)

@@ -77,7 +77,7 @@ class Settings(BaseSettings):
 
     # Partial correlation — threshold is lower than Pearson because
     # controlling for all other variables shrinks the values.
-    PARTIAL_CORRELATION_THRESHOLD: float = 0.15
+    PARTIAL_CORRELATION_THRESHOLD: float = 0.18
 
     model_config = {
         "env_file": str(PROJECT_ROOT / ".env"),

@@ -29,8 +29,10 @@ import time
 import numpy as np
 import pendulum
 import polars as pl
+from scipy import stats
 from sklearn.covariance import LedoitWolf
 
+from zerofin.analysis.correlations import _build_wide_dataframe
 from zerofin.analysis.filters import _apply_fdr_correction, is_pair_plausible
 from zerofin.analysis.transforms import _compute_transforms, _winsorize, _z_score_all
 from zerofin.config import settings
@@ -38,6 +40,12 @@ from zerofin.data.tickers import NON_DAILY_INDICATORS, REDUNDANCY_LOOKUP
 from zerofin.models.correlations import CorrelationCandidate, CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
+
+# Minimum observations needed for reliable precision matrix estimation
+MIN_PRECISION_OBS = 10
+
+# Minimum variables needed (partial correlation needs at least 3)
+MIN_PRECISION_VARS = 3
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +98,8 @@ def run_partial_correlation_pipeline(
         len(wide_df),
     )
 
-    if entity_count < 3:
-        logger.warning("Need at least 3 entities for partial correlation")
+    if entity_count < MIN_PRECISION_VARS:
+        logger.warning("Need at least %d entities for partial correlation", MIN_PRECISION_VARS)
         return _empty_summary(window, window_end, start_time)
 
     # Step 3-5: Transform, z-score, winsorize (NO beta removal)
@@ -102,7 +110,7 @@ def run_partial_correlation_pipeline(
     logger.info("Computed transforms for %d entities (no beta removal)", entity_count)
 
     # Step 6: Compute partial correlations via precision matrix
-    partial_matrix, valid_cols = _compute_partial_correlation_matrix(
+    partial_matrix, valid_cols, n_obs = _compute_partial_correlation_matrix(
         returns_df, entity_cols
     )
 
@@ -122,7 +130,7 @@ def run_partial_correlation_pipeline(
     total_pairs = n_vars * (n_vars - 1) // 2
 
     results = _extract_significant_pairs(
-        partial_matrix, valid_cols, threshold, window
+        partial_matrix, valid_cols, threshold, n_obs
     )
     logger.info(
         "Found %d partial correlations above %.2f threshold",
@@ -175,7 +183,7 @@ def run_partial_correlation_pipeline(
 def _compute_partial_correlation_matrix(
     returns_df: pl.DataFrame,
     entity_cols: list[str],
-) -> tuple[np.ndarray | None, list[str]]:
+) -> tuple[np.ndarray | None, list[str], int]:
     """Compute partial correlations via the precision matrix.
 
     Uses Ledoit-Wolf shrinkage to estimate the covariance matrix.
@@ -183,7 +191,8 @@ def _compute_partial_correlation_matrix(
     observations (high-dimensional data) without blowing up.
 
     Returns:
-        (partial_corr_matrix, valid_column_names) or (None, []) on failure.
+        (partial_corr_matrix, valid_column_names, n_obs) or
+        (None, [], 0) on failure.
     """
     # Build numpy matrix, drop rows with any NaN
     data = returns_df.select(entity_cols).to_numpy().astype(float)
@@ -197,8 +206,8 @@ def _compute_partial_correlation_matrix(
         n_vars,
     )
 
-    if n_obs < 10 or n_vars < 3:
-        return None, []
+    if n_obs < MIN_PRECISION_OBS or n_vars < MIN_PRECISION_VARS:
+        return None, [], 0
 
     # Ledoit-Wolf shrinkage covariance estimation
     # Automatically regularizes the matrix so it's always invertible
@@ -220,25 +229,25 @@ def _compute_partial_correlation_matrix(
     # Diagonal should be 1.0 (correlation of a variable with itself)
     np.fill_diagonal(partial_corr, 1.0)
 
-    return partial_corr, entity_cols
+    return partial_corr, entity_cols, n_obs
 
 
 def _extract_significant_pairs(
     partial_matrix: np.ndarray,
     cols: list[str],
     threshold: float,
-    window_days: int,
+    n_obs: int,
 ) -> list[dict]:
     """Extract pairs above threshold from the partial correlation matrix.
 
-    Also computes approximate p-values using the Fisher z-transform.
-    No Python loops over individual pairs — uses numpy masking to
-    find all above-threshold pairs at once.
+    Also computes approximate p-values using the Fisher z-transform
+    with correct degrees of freedom for partial correlation:
+    df = n_obs - n_vars - 1 (not n_obs - 3 like bivariate correlation).
     """
-    n = partial_matrix.shape[0]
+    n_vars = partial_matrix.shape[0]
 
     # Get upper triangle indices (avoid duplicates and diagonal)
-    i_idx, j_idx = np.triu_indices(n, k=1)
+    i_idx, j_idx = np.triu_indices(n_vars, k=1)
 
     # Extract all upper-triangle values at once
     all_corrs = partial_matrix[i_idx, j_idx]
@@ -250,15 +259,17 @@ def _extract_significant_pairs(
     sig_corrs = all_corrs[above]
 
     # Approximate p-values via Fisher z-transform
-    # z = arctanh(r), se = 1/sqrt(n-3), p from normal distribution
-    # n here is the number of observations used to compute the matrix
-    # We use n - n_vars as effective degrees of freedom (conservative)
-    from scipy import stats
+    # For partial correlation: df = n_obs - n_vars - 1
+    # se = 1 / sqrt(df - 2) for the Fisher z-transform
+    df = n_obs - n_vars - 1
+    if df < 3:
+        logger.warning(
+            "Degrees of freedom too low (%d) for reliable p-values",
+            df,
+        )
+        df = 3  # floor to avoid division by zero
 
-    # Use a reasonable effective sample size for p-value calculation
-    # The actual obs count isn't passed here, so we use a conservative estimate
-    effective_n = max(30, window_days)
-    se = 1.0 / np.sqrt(max(effective_n - 3, 1))
+    se = 1.0 / np.sqrt(df - 2)
     z_scores = np.arctanh(np.clip(sig_corrs, -0.9999, 0.9999))
     p_values = 2 * (1 - stats.norm.cdf(np.abs(z_scores) / se))
 
@@ -284,7 +295,7 @@ def _extract_significant_pairs(
             "pearson_r": float(r),
             "pearson_p": float(p),
             "lag_days": 0,
-            "observation_count": effective_n,
+            "observation_count": n_obs,
         })
 
     return results
@@ -382,15 +393,6 @@ def _store_candidates_batch(
 
 
 # ─── Helpers ───────────────────────────────────────────────────────
-
-
-def _build_wide_dataframe(
-    raw_rows: list[dict],
-    min_obs: int,
-) -> pl.DataFrame:
-    """Reuse the same wide-df builder from the regular pipeline."""
-    from zerofin.analysis.correlations import _build_wide_dataframe as build_wide
-    return build_wide(raw_rows, min_obs=min_obs)
 
 
 def _empty_summary(

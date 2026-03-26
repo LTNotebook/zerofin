@@ -386,12 +386,16 @@ FRED_CATEGORY_MAP: dict[str, str] = {
     "RSAFS": "fred_growth", "RSXFS": "fred_growth",
     "DGORDER": "fred_growth", "CPGDPAI": "fred_growth",
     "NEWORDER": "fred_growth", "AMTMNO": "fred_growth",
+    "TCU": "fred_growth", "CP": "fred_growth",
+    "IPG21112N": "fred_growth",
     # Credit / financial conditions
     "BAMLH0A0HYM2": "fred_credit", "BAMLC0A0CM": "fred_credit",
     "BAMLH0A0HYM2EY": "fred_credit",
     "CFNAI": "fred_credit", "STLFSI2": "fred_credit",
     "NFCI": "fred_credit", "ANFCI": "fred_credit",
     "SAHMCURRENT": "fred_credit",
+    "DRTSCILM": "fred_credit", "DRALACBS": "fred_credit",
+    "TOTALSL": "fred_credit", "TOTBKCR": "fred_credit",
     # Rates / yield curve
     "DFF": "fred_rates", "DGS2": "fred_rates", "DGS5": "fred_rates",
     "DGS10": "fred_rates", "DGS30": "fred_rates",
@@ -420,13 +424,14 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     # Commodity ETFs
     "GLD": "commodity_metal", "URA": "commodity_energy",
     "DBA": "commodity_ag", "DBC": "commodity_broad",
-    "LIT": "commodity_metal",
+    "LIT": "commodity_metal", "GDX": "commodity_metal",
     # Crypto
     "BTC-USD": "crypto", "ETH-USD": "crypto", "SOL-USD": "crypto",
     # Bond ETFs
     "TLT": "bond_etf", "SHY": "bond_etf", "IEF": "bond_etf",
     "HYG": "bond_etf", "LQD": "bond_etf", "AGG": "bond_etf",
     "TIP": "bond_etf", "EMLC": "bond_etf",
+    "JNK": "bond_etf", "BKLN": "bond_etf", "EMB": "bond_etf",
     # International ETFs
     "IEFA": "intl_etf", "VEA": "intl_etf", "IEMG": "intl_etf",
     "EEM": "intl_etf", "EMXC": "intl_etf", "VXUS": "intl_etf",
@@ -438,7 +443,11 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     "^TNX": "yield_index", "^TYX": "yield_index",
     "^FVX": "yield_index", "^IRX": "yield_index",
     # Volatility
-    "^VIX": "volatility",
+    "^VIX": "volatility", "^VVIX": "volatility",
+    "^MOVE": "volatility", "^GVZ": "volatility", "^OVX": "volatility",
+    # Currency ETFs
+    "UUP": "currency", "FXE": "currency",
+    "FXY": "currency", "DX-Y.NYB": "currency",
     # US indices
     "^GSPC": "us_index", "^DJI": "us_index", "^IXIC": "us_index",
     "^NDX": "us_index", "^RUT": "us_index", "^W5000": "us_index",
