@@ -39,10 +39,19 @@ from zerofin.analysis.correlations import _build_wide_dataframe
 from zerofin.analysis.filters import is_pair_plausible
 from zerofin.analysis.transforms import _compute_transforms, _winsorize, _z_score_all
 from zerofin.config import settings
-from zerofin.data.tickers import NON_DAILY_INDICATORS, REDUNDANCY_LOOKUP
+from zerofin.data.tickers import (
+    COMMODITIES,
+    KEY_STOCKS,
+    NON_DAILY_INDICATORS,
+    REDUNDANCY_LOOKUP,
+    STOCK_SECTOR_MAP,
+    US_INDICES,
+)
 from zerofin.models.correlations import CorrelationCandidate, CorrelationRunSummary
 from zerofin.storage.graph import GraphStorage
 from zerofin.storage.postgres import PostgresStorage
+
+logger = logging.getLogger(__name__)
 
 # Minimum observations needed for reliable precision matrix estimation
 MIN_PRECISION_OBS = 10
@@ -50,7 +59,87 @@ MIN_PRECISION_OBS = 10
 # Minimum variables needed (partial correlation needs at least 3)
 MIN_PRECISION_VARS = 3
 
-logger = logging.getLogger(__name__)
+# ─── Two-Pass Entity Classification ───────────────────────────────
+#
+# Pass 1 (micro): individual stocks + non-overlapping assets
+# Pass 2 (macro): sector ETFs + broad indices + international ETFs
+#
+# ETFs that contain stocks in our matrix are excluded from Pass 1
+# to prevent edge absorption (the ETF soaks up stock-to-stock edges).
+
+def _build_pass1_excludes() -> set[str]:
+    """Build the set of entity IDs to exclude from Pass 1 (micro).
+
+    These are ETFs/indices that contain individual stocks or futures
+    in our matrix. Including them causes the glasso to route signals
+    through the ETF intermediary, zeroing out direct connections.
+
+    Derived from tickers.py data — not hardcoded. When tickers.py
+    changes, these exclusions update automatically.
+    """
+    # Sector ETFs that our stocks map to (from STOCK_SECTOR_MAP)
+    sector_etfs = set()
+    for mapping in STOCK_SECTOR_MAP.values():
+        sector_etfs.add(mapping["sector"])
+        if "sub_sector" in mapping:
+            sector_etfs.add(mapping["sub_sector"])
+
+    # Broad market indices — derived from US_INDICES, excluding
+    # volatility indices which don't contain our stocks
+    volatility_indices = {"^VIX", "^VVIX", "^MOVE", "^GVZ", "^OVX"}
+    broad_indices = set(US_INDICES) - volatility_indices
+
+    # Factor/broad ETFs that hold stocks from across all sectors
+    # These are in SECTOR_ETFS but not mapped via STOCK_SECTOR_MAP
+    factor_etfs = {"RSP", "MTUM", "QUAL", "USMV"}
+
+    # International ETFs that contain stocks we track as individuals
+    # Check KEY_STOCKS against known ETF holdings
+    tracked_stocks = set(KEY_STOCKS)
+    intl_with_overlap = set()
+    _intl_holdings = {
+        "FXI": {"BABA", "PDD"},
+        "KWEB": {"BABA", "PDD"},
+        "EWT": {"TSM"},
+        "EWG": {"ASML"},
+    }
+    for etf, holdings in _intl_holdings.items():
+        if holdings & tracked_stocks:
+            intl_with_overlap.add(etf)
+
+    # Commodity ETFs that contain futures we track
+    tracked_futures = set(COMMODITIES)
+    commodity_with_overlap = set()
+    _commodity_holdings = {
+        "GLD": {"GC=F"},
+        "DBA": {"ZC=F", "ZW=F", "ZS=F"},
+        "DBC": {"CL=F", "GC=F", "SI=F", "HG=F"},
+    }
+    for etf, holdings in _commodity_holdings.items():
+        if holdings & tracked_futures:
+            commodity_with_overlap.add(etf)
+
+    return (
+        sector_etfs
+        | broad_indices
+        | factor_etfs
+        | intl_with_overlap
+        | commodity_with_overlap
+    )
+
+
+def _build_pass2_excludes() -> set[str]:
+    """Build the set of entity IDs to exclude from Pass 2 (macro).
+
+    Individual stocks are excluded — Pass 2 focuses on sector-level
+    and cross-asset macro connections.
+    """
+    return set(KEY_STOCKS)
+
+
+# Cache the exclusion sets (they don't change during a run)
+PASS1_EXCLUDES = _build_pass1_excludes()
+PASS2_EXCLUDES = _build_pass2_excludes()
 
 
 def run_partial_correlation_pipeline(
@@ -59,11 +148,17 @@ def run_partial_correlation_pipeline(
     *,
     window_days: int | None = None,
 ) -> CorrelationRunSummary:
-    """Run partial correlation discovery for a single window size.
+    """Run two-pass partial correlation discovery for a single window.
 
-    Uses the same data loading and transforms as the regular pipeline,
-    but skips beta removal and computes the precision matrix instead
-    of pairwise Pearson correlations.
+    Pass 1 (micro): Individual stocks + non-overlapping assets.
+    Finds direct stock-to-stock, stock-to-commodity, stock-to-macro
+    connections without ETF intermediaries absorbing edges.
+
+    Pass 2 (macro): Sector ETFs + indices + international ETFs.
+    Finds sector-to-macro, sector-to-commodity, cross-sector
+    connections without individual stocks cluttering the matrix.
+
+    Both passes use Graphical Lasso with EBIC tuning.
     """
     start_time = time.monotonic()
 
@@ -72,13 +167,13 @@ def run_partial_correlation_pipeline(
     window_start = window_end.subtract(days=window)
 
     logger.info(
-        "Starting partial correlation pipeline: %d-day window (%s to %s)",
+        "Starting two-pass partial correlation: %d-day window (%s to %s)",
         window,
         window_start.to_date_string(),
         window_end.to_date_string(),
     )
 
-    # Step 1: Fetch data (same as regular pipeline)
+    # Step 1: Fetch and transform data (shared by both passes)
     all_rows = db.get_all_market_data_range(start=window_start, end=window_end)
     raw_rows = [
         row for row in all_rows
@@ -89,81 +184,131 @@ def run_partial_correlation_pipeline(
         logger.warning("No data found — nothing to correlate")
         return _empty_summary(window, window_end, start_time)
 
-    # Step 2: Build wide DataFrame
     min_obs = max(15, int(window * settings.CORRELATION_MIN_OBSERVATIONS_RATIO))
     wide_df = _build_wide_dataframe(raw_rows, min_obs=min_obs)
-    entity_cols = [c for c in wide_df.columns if c != "date"]
-    entity_count = len(entity_cols)
 
-    logger.info(
-        "Built wide DataFrame: %d entities, %d days",
-        entity_count,
-        len(wide_df),
-    )
-
-    if entity_count < MIN_PRECISION_VARS:
-        logger.warning("Need at least %d entities for partial correlation", MIN_PRECISION_VARS)
-        return _empty_summary(window, window_end, start_time)
-
-    # Step 3-5: Transform, z-score, winsorize (NO beta removal)
+    # Transform once — both passes use the same transformed data
     returns_df = _compute_transforms(wide_df)
     returns_df = _z_score_all(returns_df)
     returns_df = _winsorize(returns_df)
 
-    logger.info("Computed transforms for %d entities (no beta removal)", entity_count)
+    all_cols = [c for c in returns_df.columns if c != "date"]
+    logger.info("Transformed %d entities total", len(all_cols))
 
-    # Step 6: Compute partial correlations via precision matrix
-    partial_matrix, valid_cols, n_obs = _compute_partial_correlation_matrix(
-        returns_df, entity_cols
-    )
-
-    if partial_matrix is None:
-        logger.warning("Could not compute precision matrix")
-        return _empty_summary(window, window_end, start_time)
-
+    # ── Pass 1: Micro (stocks + non-overlapping assets) ──────────
+    pass1_cols = [
+        c for c in all_cols
+        if c.split(":", 1)[1] not in PASS1_EXCLUDES
+    ]
     logger.info(
-        "Computed partial correlation matrix: %d x %d",
-        partial_matrix.shape[0],
-        partial_matrix.shape[1],
+        "Pass 1 (micro): %d entities (%d excluded)",
+        len(pass1_cols),
+        len(all_cols) - len(pass1_cols),
     )
 
-    # Step 7: Extract pairs above threshold
-    threshold = settings.PARTIAL_CORRELATION_THRESHOLD
-    n_vars = len(valid_cols)
-    total_pairs = n_vars * (n_vars - 1) // 2
-
-    results = _extract_significant_pairs(
-        partial_matrix, valid_cols, threshold, n_obs
+    pass1_results = _run_single_pass(
+        returns_df, pass1_cols, "micro"
     )
+
+    # ── Pass 2: Macro (sectors + indices + international) ────────
+    pass2_cols = [
+        c for c in all_cols
+        if c.split(":", 1)[1] not in PASS2_EXCLUDES
+    ]
     logger.info(
-        "Found %d partial correlations above %.2f threshold",
+        "Pass 2 (macro): %d entities (%d excluded)",
+        len(pass2_cols),
+        len(all_cols) - len(pass2_cols),
+    )
+
+    pass2_results = _run_single_pass(
+        returns_df, pass2_cols, "macro"
+    )
+
+    # ── Merge results from both passes ───────────────────────────
+    all_results = pass1_results + pass2_results
+
+    # Deduplicate: if the same pair appears in both passes, keep
+    # the one with higher strength
+    seen_pairs: dict[tuple[str, str], dict] = {}
+    for r in all_results:
+        pair = (
+            min(r["entity_a"], r["entity_b"]),
+            max(r["entity_a"], r["entity_b"]),
+        )
+        if pair not in seen_pairs or abs(r["pearson_r"]) > abs(
+            seen_pairs[pair]["pearson_r"]
+        ):
+            seen_pairs[pair] = r
+
+    results = list(seen_pairs.values())
+    logger.info(
+        "Merged: %d from micro + %d from macro = %d unique pairs",
+        len(pass1_results),
+        len(pass2_results),
         len(results),
-        threshold,
     )
 
-    # Note: No FDR correction here. EBIC-tuned glasso already controls
-    # false discovery at the estimation stage. Stacking FDR on top is
-    # statistically invalid (post-selection inference violation).
-    # See: Glasso FDR Redundancy Question.md in Research folder.
-
-    # Step 8: Gate 2 plausibility check
-    results = [r for r in results if is_pair_plausible(r["entity_a"], r["entity_b"])]
+    # Gate 2 plausibility check
+    results = [
+        r for r in results
+        if is_pair_plausible(r["entity_a"], r["entity_b"])
+    ]
     logger.info("%d survived plausibility filter", len(results))
 
-    # Step 10: Build candidates
-    candidates = _build_partial_candidates(results, window, window_end)
-    logger.info("Built %d partial correlation candidates", len(candidates))
+    # Split into tiers
+    tier1_threshold = settings.PARTIAL_CORRELATION_TIER1
+    tier1_results = [
+        r for r in results if abs(r["pearson_r"]) >= tier1_threshold
+    ]
+    tier2_results = [
+        r for r in results if abs(r["pearson_r"]) < tier1_threshold
+    ]
 
-    # Step 11: Clear old partial candidates and store new ones
+    logger.info(
+        "Tiered: %d active (>=%.2f), %d pending verification (%.2f-%.2f)",
+        len(tier1_results),
+        tier1_threshold,
+        len(tier2_results),
+        settings.PARTIAL_CORRELATION_TIER2_FLOOR,
+        tier1_threshold,
+    )
+
+    # Note: total_pairs counts both passes separately. Entities in
+    # both passes (commodities, FRED, bonds) are counted twice. This
+    # overstates the denominator but is acceptable for monitoring.
+    total_pairs = (
+        len(pass1_cols) * (len(pass1_cols) - 1) // 2
+        + len(pass2_cols) * (len(pass2_cols) - 1) // 2
+    )
+
+    # Tier 1: active candidates
+    tier1_candidates = _build_partial_candidates(
+        tier1_results, window, window_end,
+    )
+    # Tier 2: pending verification
+    tier2_candidates = _build_partial_candidates(
+        tier2_results, window, window_end,
+        status="pending_verification",
+    )
+
     cleared = _clear_old_partial_candidates(graph, window)
     logger.info("Cleared %d old partial candidates", cleared)
 
-    stored = _store_candidates_batch(graph, candidates)
-    logger.info("Stored %d new partial candidates in Neo4j", stored)
+    stored_active = _store_candidates_batch(graph, tier1_candidates)
+    stored_pending = _store_candidates_batch(graph, tier2_candidates)
+    stored = stored_active + stored_pending
+
+    logger.info(
+        "Stored %d active + %d pending = %d total in Neo4j",
+        stored_active,
+        stored_pending,
+        stored,
+    )
 
     duration = time.monotonic() - start_time
     logger.info(
-        "Partial correlation pipeline complete in %.1fs: "
+        "Two-pass partial correlation complete in %.1fs: "
         "%d pairs tested, %d stored",
         duration,
         total_pairs,
@@ -181,6 +326,50 @@ def run_partial_correlation_pipeline(
     )
 
 
+def _run_single_pass(
+    returns_df: pl.DataFrame,
+    entity_cols: list[str],
+    pass_name: str,
+) -> list[dict]:
+    """Run glasso on a subset of entities and return significant pairs.
+
+    This is the core of each pass — compute the precision matrix,
+    extract pairs above threshold. No storage, no plausibility check
+    (those happen after merging both passes).
+    """
+    if len(entity_cols) < MIN_PRECISION_VARS:
+        logger.warning(
+            "Pass %s: only %d entities, skipping",
+            pass_name,
+            len(entity_cols),
+        )
+        return []
+
+    partial_matrix, valid_cols, n_obs = _compute_partial_correlation_matrix(
+        returns_df, entity_cols
+    )
+
+    if partial_matrix is None:
+        logger.warning("Pass %s: could not compute precision matrix", pass_name)
+        return []
+
+    # Use Tier 2 floor as threshold — captures both tiers.
+    # The pipeline function splits into tiers after merging.
+    threshold = settings.PARTIAL_CORRELATION_TIER2_FLOOR
+    results = _extract_significant_pairs(
+        partial_matrix, valid_cols, threshold, n_obs
+    )
+
+    logger.info(
+        "Pass %s: %d pairs above %.2f threshold",
+        pass_name,
+        len(results),
+        threshold,
+    )
+
+    return results
+
+
 # ─── Core math ─────────────────────────────────────────────────────
 
 
@@ -188,13 +377,15 @@ def _compute_partial_correlation_matrix(
     returns_df: pl.DataFrame,
     entity_cols: list[str],
 ) -> tuple[np.ndarray | None, list[str], int]:
-    """Compute partial correlations via a sparse precision matrix.
+    """Compute partial correlations via Graphical Lasso with EBIC.
 
-    Uses Graphical Lasso with EBIC tuning instead of Ledoit-Wolf.
     Graphical Lasso enforces sparsity directly — weak connections
-    become exact mathematical zeros, not small numbers we have to
-    threshold. EBIC (Extended BIC) selects the sparsity level,
-    avoiding the over-permissive results that cross-validation gives.
+    become exact mathematical zeros. EBIC selects the sparsity level,
+    controlling false discovery at the estimation stage.
+
+    No PCA factor removal — empirically proven to destroy thematic
+    signal for mega-cap stocks in our mixed-asset universe.
+    See Research/Partial Correlation — Final Recommendation.md.
 
     Returns:
         (partial_corr_matrix, valid_column_names, n_obs) or
@@ -405,8 +596,15 @@ def _build_partial_candidates(
     results: list[dict],
     window_days: int,
     window_end: pendulum.DateTime,
+    *,
+    status: str = "candidate",
 ) -> list[CorrelationCandidate]:
-    """Convert result dicts into CorrelationCandidate models."""
+    """Convert result dicts into CorrelationCandidate models.
+
+    Args:
+        status: "candidate" for Tier 1 (active), "pending_verification"
+                for Tier 2 (waiting for DeepSeek confirmation).
+    """
     candidates = []
 
     for result in results:
@@ -427,6 +625,7 @@ def _build_partial_candidates(
                 observation_count=result["observation_count"],
                 window_days=window_days,
                 window_end=window_end,
+                status=status,
             )
             candidates.append(candidate)
         except Exception as error:
@@ -441,14 +640,17 @@ def _build_partial_candidates(
 
 
 def _clear_old_partial_candidates(graph: GraphStorage, window_days: int) -> int:
-    """Delete old partial correlation candidates for this window size."""
+    """Delete old partial correlation candidates for this window size.
+
+    Clears both active (candidate) and pending_verification edges.
+    """
     query = """
         MATCH ()-[r:CORRELATES_WITH {
             source: 'statistical',
-            status: 'candidate',
             method: 'partial',
             window_days: $window_days
         }]->()
+        WHERE r.status IN ['candidate', 'pending_verification']
         DELETE r RETURN count(r) AS deleted
     """
     result = graph.run_query(query, {"window_days": window_days})
