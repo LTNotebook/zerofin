@@ -11,7 +11,7 @@ Full design docs: `C:/Users/B/Desktop/The Base/Projects/Financial Project/` (15+
 - **Databases:** PostgreSQL (time-series + settings), Neo4j (knowledge graph + vector search + article storage)
 - **Math:** Polars (NOT Pandas)
 - **Embeddings:** Voyage AI (`voyage-finance-2`)
-- **AI (automated):** DeepSeek Speciale API (`deepseek-chat`) via LangChain
+- **AI (automated):** DeepSeek V3 (`deepseek-chat`) via OpenRouter + LangChain
 - **AI (interactive):** Claude Code + MCP tools
 - **LLM Orchestration:** LangChain (for DeepSeek pipeline and future multi-model workflows)
 - **Covariance Estimation:** scikit-learn (Ledoit-Wolf, GraphicalLasso)
@@ -41,9 +41,12 @@ zerofin/
 │       │   ├── monthly.py       # Monthly FRED pipeline
 │       │   ├── filters.py       # FDR, stability, plausibility filters
 │       │   └── transforms.py    # Returns, z-score, winsorize, beta removal
-│       ├── ai/            # DeepSeek integration, prompts (Phase 2)
+│       ├── ai/            # LLM verification pipeline (Phase 3)
+│       │   ├── provider.py    # LLM provider registry (DeepSeek, Groq, OpenRouter)
+│       │   └── verification.py # Correlation verification chain + prompt
 │       └── delivery/      # Briefing generation, alerts (Phase 4)
-├── scripts/               # Runnable scripts (setup, seed, daily run)
+├── scripts/               # Pipeline scripts (collect, correlate, verify, seed)
+│   └── tests/             # Functional test scripts (not pytest)
 ├── web/                   # FastAPI + React dashboard (Phase 5)
 ├── tests/                 # Pytest tests
 ├── docker-compose.yml     # Database infrastructure (reads from .env)
@@ -53,12 +56,12 @@ zerofin/
 
 ## Development Commands
 - `uv sync` — install all dependencies
-- `uv run pytest` — run tests
-- `uv run ruff check .` — lint
-- `uv run ruff format .` — format code
-- `uv run python scripts/daily_collect.py` — run daily pipeline
-- `uv run python scripts/setup_databases.py` — initialize databases
-- `uv run python scripts/seed_entities.py` — load initial entities
+- `pytest` — run tests
+- `python scripts/daily_collect.py` — run daily pipeline
+- `python scripts/run_correlations.py` — run correlation engine
+- `python scripts/run_verification.py` — run LLM verification on pending relationships
+- `python scripts/setup_databases.py` — initialize databases
+- `python scripts/seed_entities.py` — load initial entities
 
 ## Code Conventions
 
@@ -106,7 +109,9 @@ zerofin/
 - Worker and web app are SEPARATE processes sharing databases
 - Worker NEVER talks to FastAPI. FastAPI NEVER talks to worker. Both talk to databases.
 - Settings stored in PostgreSQL. Worker reads settings from DB.
-- All AI analysis goes through DeepSeek API, NOT Claude API (cost)
+- All AI analysis goes through DeepSeek via OpenRouter, NOT Claude API (cost)
+- LLM provider is swappable via config — DeepSeek, Groq, OpenRouter all supported
+- ALWAYS test LLM calls with 1 API call before running full batch — don't waste credits debugging
 - Data collection plugins follow a standard interface (see `data/collector.py`)
 
 ## Entity and Relationship Schema
@@ -124,16 +129,13 @@ zerofin/
 - NEVER edit files that another agent might be working on simultaneously
 - Ruff runs automatically via pre-commit hook — don't run it manually
 - ALWAYS write tests for new functionality
-- ALWAYS use uv commands, never raw pip
+- ALWAYS use uv commands for package management, never raw pip
 - ALWAYS verify data quality after changes (run engine, check Neo4j, audit results)
 - ALWAYS suggest research when uncertain about domain-specific decisions
-- ALWAYS clear the market_data table before re-running backfills (backfill creates duplicates, not upserts)
-- ALWAYS flag new library installations before running them — explain what's being added and why
+- ALWAYS flag new library installations before running — explain what's being added and why
 - ALWAYS verify script paths exist before citing them — don't guess filenames
-- NEVER use Python for-loops for numeric computation when numpy can vectorize it
-- NEVER stack more statistical filters when the problem is the estimator — fix the math upstream
-- Prefer structural sparsity (glasso) over arbitrary thresholding (Ledoit-Wolf + cutoff)
-- DeepSeek pipeline MUST use LangChain for orchestration — decided 2026-03-25
+- ALWAYS clear the market_data table before re-running backfills (creates duplicates, not upserts)
+- DeepSeek pipeline MUST use LangChain for orchestration
 
 ## Working Style
 - Explain things in plain English, not jargon
@@ -163,6 +165,7 @@ zerofin/
 - Run correlation audits via agents after every threshold or filter change
 - Don't assume the user remembers technical terms — re-explain simply when asked
 - Don't say "you'll probably never need this" — the user wants to understand everything
+- NEVER TRY TO END THE CONVERSATION with things like "Hey it's getting late maybe we should wrap this up" or "Hey we've been going a while we should stop". Let the user decide when it's time.
 - All documents save to Obsidian (never project docs/ folder):
   - Research: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Research/`
   - Quality audits: `C:/Users/B/Desktop/The Base/Projects/Financial Project/Quality Control/`

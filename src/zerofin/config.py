@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     NEWSAPI_KEY: str = ""
     VOYAGE_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+
+    # --- LLM Provider ---
+    # Which provider to use: "deepseek", "groq", or "openrouter"
+    LLM_PROVIDER: str = "deepseek"
+    # Model name (provider-specific)
+    LLM_MODEL: str = "deepseek-chat"
 
     # --- Correlation Engine (long-term relationship discovery) ---
 
