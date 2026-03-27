@@ -22,6 +22,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field, field_validator
 
 from zerofin.ai.provider import get_llm
+from zerofin.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +75,19 @@ class VerificationResult(BaseModel):
         return v.lower() if isinstance(v, str) else v
 
     confidence: float = Field(
-        ge=0.0,
-        le=1.0,
         description=(
-            "Confidence in the verdict. 0.5 = genuinely uncertain. "
-            "Above 0.8 only when mechanism is well-documented and unambiguous. "
-            "Below 0.3 when no mechanism is evident."
+            "How certain you are about your verdict, from 0.0 to 1.0. "
+            "0.90 = very confident in this call. "
+            "0.50 = genuinely could go either way."
         ),
     )
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def clamp_confidence(cls, v: float) -> float:
+        if isinstance(v, (int, float)):
+            return max(0.0, min(1.0, float(v)))
+        return v
     reasoning: str = Field(
         description="1-2 sentence summary of why this verdict is correct.",
     )
@@ -291,3 +297,101 @@ def build_verification_chain():
     llm = get_llm(temperature=0.1)
     structured_llm = llm.with_structured_output(VerificationResult)
     return VERIFICATION_PROMPT | structured_llm
+
+
+# ---------------------------------------------------------------------------
+# Second-pass review chain (stronger model for borderline cases)
+# ---------------------------------------------------------------------------
+
+REVIEW_SYSTEM_PROMPT = """\
+You are a senior financial analyst providing an independent second opinion \
+on a relationship verification. A first-pass model assessed whether a \
+partial correlation between two financial entities is plausible or spurious. \
+You will see its assessment, but render your own independent verdict. The \
+first-pass model is fast but has known blind spots — override it whenever \
+your analysis differs.
+
+CONTEXT:
+- Partial correlations measure co-movement AFTER removing the effects of all \
+other variables in the model, including broad market factors and sector ETFs.
+- The range 0.10-0.15 is weak but meaningful. Because common factors have \
+already been removed, even small residual correlations can reflect genuine \
+direct relationships.
+- SAME-INDUSTRY PEERS: Companies in the same broad industry share regulatory, \
+institutional, and policy dynamics that count as sector_peer mechanisms — \
+even when their specific products or business models differ.
+- FACTOR EXPOSURE: Shared secondary factor exposure (yield sensitivity, size \
+factor, cyclicality, defensive characteristics) is a valid macro_sensitivity \
+mechanism after partial correlation removes broad market effects. \
+High-dividend income assets (REITs, MLPs, utilities, preferred stocks) share \
+rate sensitivity and income investor flows regardless of what sector they \
+operate in.
+- COMPOSITIONAL: Part-whole relationships (ETF contains another ETF, index \
+contains another index, instrument tracks the same underlying) are valid \
+etf_composition relationships, not spurious.
+- VALUE CHAIN: Entities connected through a production value chain (raw \
+material to processor, producer to refiner, manufacturer to distributor) \
+have a direct supply_chain relationship even when their business models \
+and revenue drivers differ.
+- GEOGRAPHIC PRODUCTION: When a country is a major producer of a commodity, \
+country indices have a valid compositional or macro_sensitivity link to \
+that commodity.
+- DIRECT vs INDIRECT: A one-hop relationship is DIRECT. A three-hop chain \
+through multiple intermediaries is indirect. Do not downgrade one-hop \
+supply chains.
+
+VERDICT SCALE:
+- CONFIRMED_PLAUSIBLE: Well-documented mechanism with strong precedent.
+- LIKELY_PLAUSIBLE: Clear mechanism but weaker evidence.
+- UNCERTAIN: Mechanism may exist but evidence is ambiguous.
+- LIKELY_SPURIOUS: No clear mechanism, most likely a confound or coincidence.
+- CONFIRMED_SPURIOUS: No conceivable mechanism between clearly unrelated entities. \
+However, if you do not recognize an entity, are uncertain about its sector, or \
+cannot determine what it does, use UNCERTAIN instead — never CONFIRMED_SPURIOUS \
+for pairs where you lack knowledge about one or both entities."""
+
+REVIEW_HUMAN_PROMPT = """\
+Entity A: {entity_a_id} — {entity_a_desc} (type: {entity_a_type})
+Entity B: {entity_b_id} — {entity_b_desc} (type: {entity_b_type})
+Partial correlation: {correlation}, {direction}
+Window: {window_days} trading days
+Observations: {observation_count}
+
+First-pass assessment: {pass1_verdict} (confidence: {pass1_confidence})
+First-pass mechanism: {pass1_mechanism}
+First-pass reasoning: {pass1_reasoning}
+
+Render your own independent verdict. Override the first-pass assessment \
+if your analysis differs."""
+
+REVIEW_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", REVIEW_SYSTEM_PROMPT),
+    ("human", REVIEW_HUMAN_PROMPT),
+])
+
+def needs_second_pass(result: VerificationResult) -> bool:
+    """Decide if a verification result should go to the second-pass model."""
+    if result.verdict in ("confirmed_plausible", "confirmed_spurious"):
+        return False
+    if result.verdict == "uncertain":
+        return True
+    if result.verdict == "likely_spurious" and result.confidence < settings.VERIFICATION_REVIEW_THRESHOLD:
+        return True
+    if result.verdict == "likely_plausible" and result.confidence < settings.VERIFICATION_REVIEW_THRESHOLD:
+        return True
+    return False
+
+
+def build_review_chain():
+    """Build a second-pass chain using a stronger model (Sonnet via OpenRouter).
+
+    This chain receives the original entity pair data plus the first-pass
+    verdict, and renders an independent judgment.
+    """
+    llm = get_llm(
+        provider="openrouter",
+        model="anthropic/claude-sonnet-4.6",
+        temperature=0.1,
+    )
+    structured_llm = llm.with_structured_output(VerificationResult)
+    return REVIEW_PROMPT | structured_llm

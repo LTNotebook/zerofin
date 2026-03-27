@@ -46,17 +46,20 @@ class Settings(BaseSettings):
 
     # --- LLM Provider ---
     # Which provider to use: "deepseek", "groq", or "openrouter"
-    LLM_PROVIDER: str = "deepseek"
+    LLM_PROVIDER: str = "openrouter"
     # Model name (provider-specific)
-    LLM_MODEL: str = "deepseek-chat"
+    LLM_MODEL: str = "deepseek/deepseek-chat"
     # Maximum tokens for LLM responses
     LLM_MAX_TOKENS: int = 600
 
     # --- Verification Pipeline ---
     # Maximum pairs to process in one verification run (cost protection)
-    MAX_VERIFICATION_BATCH: int = 100
+    MAX_VERIFICATION_BATCH: int = 200
     # Pairs per chunk (also controls max concurrency per chunk)
     VERIFICATION_CHUNK_SIZE: int = 20
+    # Confidence threshold for routing to the second-pass review model.
+    # likely_plausible and likely_spurious below this go to Sonnet for review.
+    VERIFICATION_REVIEW_THRESHOLD: float = 0.65
 
     # --- Correlation Engine (long-term relationship discovery) ---
 

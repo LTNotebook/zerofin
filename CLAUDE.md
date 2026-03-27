@@ -111,6 +111,8 @@ zerofin/
 - Settings stored in PostgreSQL. Worker reads settings from DB.
 - All AI analysis goes through DeepSeek via OpenRouter, NOT Claude API (cost)
 - LLM provider is swappable via config — DeepSeek, Groq, OpenRouter all supported
+- Two-pass verification: DeepSeek V3 (bulk, pass 1) + Claude Sonnet 4.6 (borderline review, pass 2)
+- Verification prompt uses generalized principles, not sector-specific rules (prevents overfitting)
 - ALWAYS test LLM calls with 1 API call before running full batch — don't waste credits debugging
 - Data collection plugins follow a standard interface (see `data/collector.py`)
 

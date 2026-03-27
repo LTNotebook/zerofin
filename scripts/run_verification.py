@@ -18,13 +18,19 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 # UTF-8 output for Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from zerofin.ai.verification import VerificationResult, build_verification_chain  # noqa: E402
+from zerofin.ai.verification import (  # noqa: E402
+    VerificationResult,
+    build_review_chain,
+    build_verification_chain,
+    needs_second_pass,
+)
 from zerofin.config import settings  # noqa: E402
 from zerofin.storage.graph import GraphStorage  # noqa: E402
 
@@ -94,6 +100,7 @@ def _escape_braces(text: str) -> str:
 def _build_input(row: dict) -> dict:
     """Convert a Neo4j row to the format the verification chain expects."""
     return {
+        # IDs are alphanumeric + =, ., ^, - only — no brace escaping needed
         "entity_a_id": row["entity_a_id"],
         "entity_a_desc": _escape_braces(row.get("entity_a_desc") or row.get("entity_a_name") or ""),
         "entity_a_type": row["entity_a_type"],
@@ -128,15 +135,21 @@ def _combine_result(row: dict, result: VerificationResult) -> dict:
     }
 
 
-def verify_batch(rows: list[dict]) -> list[dict]:
+def verify_batch(rows: list[dict], chain: Any = None) -> list[dict]:
     """Run verification chain on all rows in chunks.
 
     Processes VERIFICATION_CHUNK_SIZE pairs at a time, saving progress after
     each chunk. If a chunk fails, previously completed chunks are preserved
     in the CSV.
+
+    Args:
+        rows: Relationship rows to verify.
+        chain: Pre-built verification chain. If None, one is built internally.
+            Pass the warm-up chain to avoid building it twice.
     """
     chunk_size = settings.VERIFICATION_CHUNK_SIZE
-    chain = build_verification_chain()
+    if chain is None:
+        chain = build_verification_chain()
     combined = []
     total = len(rows)
     total_chunks = (total + chunk_size - 1) // chunk_size
@@ -190,7 +203,7 @@ def write_csv(results: list[dict]) -> None:
 
     fieldnames = [
         "entity_a_id", "entity_a_name", "entity_b_id", "entity_b_name",
-        "correlation", "direction", "window_days", "observation_count",
+        "correlation", "direction", "window_days", "observation_count", "method",
         "verdict", "confidence", "mechanism", "alternative_explanations",
         "reasoning", "relationship_category",
     ]
@@ -269,16 +282,83 @@ def main() -> None:
             logger.error("Warm-up call FAILED: %s — aborting batch.", e)
             return
 
-        # 4. Run verification
-        results = verify_batch(rows)
+        # 4. Run first pass (DeepSeek) — warm-up already processed rows[0],
+        # so carry that result forward and only batch the remainder.
+        warmup_combined = [_combine_result(rows[0], test_result)]
+        results = warmup_combined + verify_batch(rows[1:], chain=chain)
 
-        # 5. Export CSV for audit
+        # 5. Run second pass (Sonnet) on borderline cases
+        borderline_indices = []
+        for i, r in enumerate(results):
+            result_obj = VerificationResult(
+                mechanism=r["mechanism"],
+                alternative_explanations=r["alternative_explanations"],
+                verdict=r["verdict"],
+                confidence=r["confidence"],
+                reasoning=r["reasoning"],
+                relationship_category=r["relationship_category"],
+            )
+            if needs_second_pass(result_obj):
+                borderline_indices.append(i)
+
+        if borderline_indices:
+            logger.info(
+                "Second pass: %d borderline cases routed to Sonnet",
+                len(borderline_indices),
+            )
+            review_chain = build_review_chain()
+            review_inputs = []
+            for i in borderline_indices:
+                r = results[i]
+                review_inputs.append({
+                    "entity_a_id": r["entity_a_id"],
+                    "entity_a_desc": _escape_braces(rows[i].get("entity_a_desc") or rows[i].get("entity_a_name") or ""),
+                    "entity_a_type": rows[i]["entity_a_type"],
+                    "entity_b_id": r["entity_b_id"],
+                    "entity_b_desc": _escape_braces(rows[i].get("entity_b_desc") or rows[i].get("entity_b_name") or ""),
+                    "entity_b_type": rows[i]["entity_b_type"],
+                    "correlation": r["correlation"],
+                    "direction": r["direction"],
+                    "window_days": r["window_days"],
+                    "observation_count": r["observation_count"],
+                    "pass1_verdict": r["verdict"],
+                    "pass1_confidence": r["confidence"],
+                    "pass1_mechanism": r["mechanism"],
+                    "pass1_reasoning": r["reasoning"],
+                })
+
+            try:
+                review_results = review_chain.batch(
+                    review_inputs, config={"max_concurrency": 10}
+                )
+                for idx, review_result in zip(borderline_indices, review_results):
+                    old_verdict = results[idx]["verdict"]
+                    results[idx]["verdict"] = review_result.verdict
+                    results[idx]["confidence"] = review_result.confidence
+                    results[idx]["mechanism"] = review_result.mechanism
+                    results[idx]["alternative_explanations"] = review_result.alternative_explanations
+                    results[idx]["reasoning"] = review_result.reasoning
+                    results[idx]["relationship_category"] = review_result.relationship_category
+                    if old_verdict != review_result.verdict:
+                        logger.info(
+                            "  Sonnet override: %s <-> %s: %s -> %s",
+                            results[idx]["entity_a_id"],
+                            results[idx]["entity_b_id"],
+                            old_verdict,
+                            review_result.verdict,
+                        )
+            except Exception as e:
+                logger.error("Second pass FAILED: %s — keeping first-pass results.", e)
+        else:
+            logger.info("Second pass: no borderline cases to review")
+
+        # 6. Export CSV for audit
         write_csv(results)
 
-        # 6. Log summary
+        # 7. Log summary
         log_summary(results)
 
-        # 7. Write back to Neo4j
+        # 8. Write back to Neo4j
         # Commented out until we've audited the results
         # write_to_neo4j(graph, results)
         logger.info("Neo4j write is DISABLED — uncomment after auditing CSV")
