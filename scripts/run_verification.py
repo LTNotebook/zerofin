@@ -15,7 +15,6 @@ from __future__ import annotations
 import csv
 import io
 import logging
-import os
 import sys
 import time
 from pathlib import Path
@@ -25,10 +24,8 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-os.environ["LLM_PROVIDER"] = "openrouter"
-os.environ["LLM_MODEL"] = "deepseek/deepseek-chat"
-
-from zerofin.ai.verification import build_verification_chain  # noqa: E402
+from zerofin.ai.verification import VerificationResult, build_verification_chain  # noqa: E402
+from zerofin.config import settings  # noqa: E402
 from zerofin.storage.graph import GraphStorage  # noqa: E402
 
 logging.basicConfig(
@@ -45,11 +42,11 @@ RETURN
     a.id AS entity_a_id,
     a.name AS entity_a_name,
     a.description AS entity_a_desc,
-    CASE WHEN labels(a)[0] = 'Indicator' THEN 'indicator' ELSE 'asset' END AS entity_a_type,
+    CASE WHEN 'Indicator' IN labels(a) THEN 'indicator' ELSE 'asset' END AS entity_a_type,
     b.id AS entity_b_id,
     b.name AS entity_b_name,
     b.description AS entity_b_desc,
-    CASE WHEN labels(b)[0] = 'Indicator' THEN 'indicator' ELSE 'asset' END AS entity_b_type,
+    CASE WHEN 'Indicator' IN labels(b) THEN 'indicator' ELSE 'asset' END AS entity_b_type,
     r.correlation AS correlation,
     r.direction AS direction,
     r.window_days AS window_days,
@@ -89,17 +86,19 @@ def fetch_pending(graph: GraphStorage) -> list[dict]:
     return rows
 
 
-CHUNK_SIZE = 20
+def _escape_braces(text: str) -> str:
+    """Escape curly braces so LangChain's template engine doesn't interpret them."""
+    return text.replace("{", "{{").replace("}", "}}")
 
 
 def _build_input(row: dict) -> dict:
     """Convert a Neo4j row to the format the verification chain expects."""
     return {
         "entity_a_id": row["entity_a_id"],
-        "entity_a_desc": row.get("entity_a_desc") or row.get("entity_a_name") or "",
+        "entity_a_desc": _escape_braces(row.get("entity_a_desc") or row.get("entity_a_name") or ""),
         "entity_a_type": row["entity_a_type"],
         "entity_b_id": row["entity_b_id"],
-        "entity_b_desc": row.get("entity_b_desc") or row.get("entity_b_name") or "",
+        "entity_b_desc": _escape_braces(row.get("entity_b_desc") or row.get("entity_b_name") or ""),
         "entity_b_type": row["entity_b_type"],
         "correlation": row["correlation"],
         "direction": row["direction"],
@@ -108,7 +107,7 @@ def _build_input(row: dict) -> dict:
     }
 
 
-def _combine_result(row: dict, result) -> dict:
+def _combine_result(row: dict, result: VerificationResult) -> dict:
     """Merge Neo4j row with verification result for CSV/Neo4j write."""
     return {
         "entity_a_id": row["entity_a_id"],
@@ -132,33 +131,35 @@ def _combine_result(row: dict, result) -> dict:
 def verify_batch(rows: list[dict]) -> list[dict]:
     """Run verification chain on all rows in chunks.
 
-    Processes CHUNK_SIZE pairs at a time, saving progress after each chunk.
-    If a chunk fails, previously completed chunks are preserved in the CSV.
+    Processes VERIFICATION_CHUNK_SIZE pairs at a time, saving progress after
+    each chunk. If a chunk fails, previously completed chunks are preserved
+    in the CSV.
     """
+    chunk_size = settings.VERIFICATION_CHUNK_SIZE
     chain = build_verification_chain()
     combined = []
     total = len(rows)
-    total_chunks = (total + CHUNK_SIZE - 1) // CHUNK_SIZE
+    total_chunks = (total + chunk_size - 1) // chunk_size
 
     logger.info(
-        "Processing %d pairs in %d chunks of %d (max_concurrency=20)",
-        total, total_chunks, CHUNK_SIZE,
+        "Processing %d pairs in %d chunks of %d",
+        total, total_chunks, chunk_size,
     )
     start = time.time()
 
-    for i in range(0, total, CHUNK_SIZE):
-        chunk_rows = rows[i : i + CHUNK_SIZE]
-        chunk_num = i // CHUNK_SIZE + 1
+    for i in range(0, total, chunk_size):
+        chunk_rows = rows[i : i + chunk_size]
+        chunk_num = i // chunk_size + 1
         chunk_inputs = [_build_input(row) for row in chunk_rows]
 
         logger.info(
             "Chunk %d/%d: processing %d pairs (%d-%d of %d)...",
             chunk_num, total_chunks, len(chunk_rows),
-            i + 1, min(i + CHUNK_SIZE, total), total,
+            i + 1, min(i + chunk_size, total), total,
         )
 
         try:
-            results = chain.batch(chunk_inputs, config={"max_concurrency": CHUNK_SIZE})
+            results = chain.batch(chunk_inputs, config={"max_concurrency": chunk_size})
             for row, result in zip(chunk_rows, results):
                 combined.append(_combine_result(row, result))
 
@@ -208,22 +209,22 @@ def write_to_neo4j(graph: GraphStorage, results: list[dict]) -> None:
     logger.info("Updated %d relationships in Neo4j", len(results))
 
 
-def print_summary(results: list[dict]) -> None:
-    """Print verdict distribution."""
+def log_summary(results: list[dict]) -> None:
+    """Log verdict distribution."""
     counts: dict[str, int] = {}
     for r in results:
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
 
-    print("\n" + "=" * 60)
-    print(f"RESULTS ({len(results)} pairs)")
-    print("-" * 60)
-    print("Verdict distribution:")
+    logger.info("=" * 60)
+    logger.info("RESULTS (%d pairs)", len(results))
+    logger.info("-" * 60)
+    logger.info("Verdict distribution:")
     for verdict in ["confirmed_plausible", "likely_plausible", "uncertain",
                      "likely_spurious", "confirmed_spurious"]:
         count = counts.get(verdict, 0)
         pct = count / len(results) * 100 if results else 0
         bar = "#" * count
-        print(f"  {verdict:25s} {count:3d} ({pct:4.1f}%) {bar}")
+        logger.info("  %-25s %3d (%4.1f%%) %s", verdict, count, pct, bar)
 
     promoted = sum(
         1 for r in results
@@ -231,10 +232,10 @@ def print_summary(results: list[dict]) -> None:
     )
     rejected = sum(1 for r in results if r["verdict"] in ("confirmed_spurious", "likely_spurious"))
     pending = sum(1 for r in results if r["verdict"] == "uncertain")
-    print(f"\nPromoted to candidate: {promoted}")
-    print(f"Rejected: {rejected}")
-    print(f"Still pending: {pending}")
-    print("=" * 60)
+    logger.info("Promoted to candidate: %d", promoted)
+    logger.info("Rejected: %d", rejected)
+    logger.info("Still pending: %d", pending)
+    logger.info("=" * 60)
 
 
 def main() -> None:
@@ -245,16 +246,39 @@ def main() -> None:
             logger.info("No pending_verification relationships found. Nothing to do.")
             return
 
-        # 2. Run verification
+        # 2. Cap batch size to prevent runaway API costs
+        max_batch = settings.MAX_VERIFICATION_BATCH
+        if len(rows) > max_batch:
+            logger.warning(
+                "Found %d pending pairs, capping to MAX_VERIFICATION_BATCH=%d",
+                len(rows), max_batch,
+            )
+            rows = rows[:max_batch]
+
+        # 3. Warm-up: test a single call before committing to the full batch
+        chain = build_verification_chain()
+        test_input = _build_input(rows[0])
+        try:
+            test_result = chain.invoke(test_input)
+            logger.info(
+                "Warm-up OK: %s vs %s -> %s (confidence=%.2f)",
+                rows[0]["entity_a_id"], rows[0]["entity_b_id"],
+                test_result.verdict, test_result.confidence,
+            )
+        except Exception as e:
+            logger.error("Warm-up call FAILED: %s — aborting batch.", e)
+            return
+
+        # 4. Run verification
         results = verify_batch(rows)
 
-        # 3. Export CSV for audit
+        # 5. Export CSV for audit
         write_csv(results)
 
-        # 4. Print summary
-        print_summary(results)
+        # 6. Log summary
+        log_summary(results)
 
-        # 5. Write back to Neo4j
+        # 7. Write back to Neo4j
         # Commented out until we've audited the results
         # write_to_neo4j(graph, results)
         logger.info("Neo4j write is DISABLED — uncomment after auditing CSV")

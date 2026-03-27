@@ -13,6 +13,7 @@ Uses DeepSeek via OpenRouter (paid, but ~$0.10 for 50 calls).
 from __future__ import annotations
 
 import io
+import logging
 import os
 import sys
 import time
@@ -20,12 +21,19 @@ from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 os.environ["LLM_PROVIDER"] = "openrouter"
 os.environ["LLM_MODEL"] = "deepseek/deepseek-chat"
 
 from zerofin.ai.verification import build_verification_chain  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 # fmt: off
 TEST_CASES = [
@@ -101,11 +109,11 @@ TEST_CASES = [
 def main() -> None:
     chain = build_verification_chain()
 
-    # Separate labels from inputs
-    labels = [case.pop("label") for case in TEST_CASES]
-    inputs = TEST_CASES
+    # Separate labels from inputs without mutating TEST_CASES
+    labels = [case["label"] for case in TEST_CASES]
+    inputs = [{k: v for k, v in case.items() if k != "label"} for case in TEST_CASES]
 
-    print(f"Sending {len(inputs)} cases in parallel (max_concurrency=20)...\n")
+    logger.info("Sending %d cases in parallel (max_concurrency=20)...", len(inputs))
     start = time.time()
 
     # Batch sends all requests with up to 20 running at once
@@ -119,13 +127,12 @@ def main() -> None:
     total_output_chars = 0
 
     for label, result in zip(labels, results):
-        print(f"{label}")
-        print(f"  Verdict: {result.verdict.upper()} (confidence: {result.confidence})")
-        print(f"  Mechanism: {result.mechanism}")
-        print(f"  Alternatives: {result.alternative_explanations}")
-        print(f"  Category: {result.relationship_category}")
-        print(f"  Reasoning: {result.reasoning}")
-        print()
+        logger.info("%s", label)
+        logger.info("  Verdict: %s (confidence: %s)", result.verdict.upper(), result.confidence)
+        logger.info("  Mechanism: %s", result.mechanism)
+        logger.info("  Alternatives: %s", result.alternative_explanations)
+        logger.info("  Category: %s", result.relationship_category)
+        logger.info("  Reasoning: %s", result.reasoning)
 
         verdict_counts[result.verdict] = verdict_counts.get(result.verdict, 0) + 1
 
@@ -133,8 +140,8 @@ def main() -> None:
         total_output_chars += len(result.mechanism) + len(result.alternative_explanations)
         total_output_chars += len(result.reasoning) + len(result.verdict)
 
-    # The system prompt is the same for all calls (~2500 chars)
-    system_prompt_chars = 2500
+    # The system prompt is ~11,000 chars (7 calibration examples)
+    system_prompt_chars = 11000
     human_prompt_chars_each = 200
     total_input_chars = (system_prompt_chars + human_prompt_chars_each) * len(inputs)
 
@@ -147,22 +154,22 @@ def main() -> None:
     output_cost = (est_output_tokens / 1_000_000) * 0.44
     total_cost = (input_cost + output_cost) * 1.055  # 5.5% OpenRouter fee
 
-    print("=" * 60)
-    print(f"RESULTS ({len(inputs)} pairs in {elapsed:.1f}s)")
-    print("-" * 60)
-    print("Verdict distribution:")
+    logger.info("=" * 60)
+    logger.info("RESULTS (%d pairs in %.1fs)", len(inputs), elapsed)
+    logger.info("-" * 60)
+    logger.info("Verdict distribution:")
     for verdict in ["confirmed_plausible", "likely_plausible", "uncertain",
                      "likely_spurious", "confirmed_spurious"]:
         count = verdict_counts.get(verdict, 0)
         pct = count / len(inputs) * 100
         bar = "#" * count
-        print(f"  {verdict:25s} {count:3d} ({pct:4.1f}%) {bar}")
-    print("-" * 60)
-    print(
-        f"Estimated tokens:  ~{est_input_tokens:,} input"
-        f" + ~{est_output_tokens:,} output = ~{est_total_tokens:,} total"
+        logger.info("  %-25s %3d (%4.1f%%) %s", verdict, count, pct, bar)
+    logger.info("-" * 60)
+    logger.info(
+        "Estimated tokens:  ~%s input + ~%s output = ~%s total",
+        f"{est_input_tokens:,}", f"{est_output_tokens:,}", f"{est_total_tokens:,}",
     )
-    print(f"Estimated cost:    ~${total_cost:.4f}")
+    logger.info("Estimated cost:    ~$%.4f", total_cost)
 
 
 if __name__ == "__main__":

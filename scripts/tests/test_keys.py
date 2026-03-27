@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 # Add project root to path so we can import zerofin
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from zerofin.config import settings
+from zerofin.config import settings  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 TEST_PROMPT = "What sector does NVDA (Nvidia) belong to? Reply in one sentence."
 
@@ -23,7 +31,7 @@ def test_openrouter() -> None:
         api_key=settings.OPENROUTER_API_KEY,
     )
     response = llm.invoke(TEST_PROMPT)
-    print(f"[OpenRouter/DeepSeek] {response.content}")
+    logger.info("[OpenRouter/DeepSeek] %s", response.content)
 
 
 def test_groq() -> None:
@@ -36,7 +44,7 @@ def test_groq() -> None:
         api_key=settings.GROQ_API_KEY,
     )
     response = llm.invoke(TEST_PROMPT)
-    print(f"[Groq/Llama4] {response.content}")
+    logger.info("[Groq/Llama4] %s", response.content)
 
 
 def test_voyage() -> None:
@@ -55,7 +63,7 @@ def test_voyage() -> None:
     response.raise_for_status()
     data = response.json()
     dims = len(data["data"][0]["embedding"])
-    print(f"[Voyage] Embedding returned {dims} dimensions")
+    logger.info("[Voyage] Embedding returned %d dimensions", dims)
 
 
 if __name__ == "__main__":
@@ -68,6 +76,6 @@ if __name__ == "__main__":
     for name, test_fn in providers.items():
         try:
             test_fn()
-            print(f"  PASS: {name}\n")
+            logger.info("  PASS: %s", name)
         except Exception as e:
-            print(f"  FAIL: {name} -- {e}\n")
+            logger.error("  FAIL: %s -- %s", name, e)

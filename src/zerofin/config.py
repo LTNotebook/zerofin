@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "deepseek"
     # Model name (provider-specific)
     LLM_MODEL: str = "deepseek-chat"
+    # Maximum tokens for LLM responses
+    LLM_MAX_TOKENS: int = 600
+
+    # --- Verification Pipeline ---
+    # Maximum pairs to process in one verification run (cost protection)
+    MAX_VERIFICATION_BATCH: int = 100
+    # Pairs per chunk (also controls max concurrency per chunk)
+    VERIFICATION_CHUNK_SIZE: int = 20
 
     # --- Correlation Engine (long-term relationship discovery) ---
 

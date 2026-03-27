@@ -15,12 +15,9 @@ The prompt is designed around research from 2025-2026 on LLM calibration:
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Literal
 
-from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field, field_validator
 
@@ -75,6 +72,7 @@ class VerificationResult(BaseModel):
     @classmethod
     def lowercase_verdict(cls, v: str) -> str:
         return v.lower() if isinstance(v, str) else v
+
     confidence: float = Field(
         ge=0.0,
         le=1.0,
@@ -120,16 +118,22 @@ policy) is NOT a direct relationship — that signal was already partialled out.
 - DIRECT vs INDIRECT: A one-hop relationship (e.g., Tesla buys lithium, \
 Deere sells to corn farmers) is DIRECT. A three-hop chain through multiple \
 intermediaries is indirect. Do not downgrade one-hop supply chains.
-- PHARMA/BIOTECH: Shared regulatory risk (FDA sentiment), reimbursement \
-dynamics, and institutional investor overlap count as valid sector_peer \
-mechanisms for pharma and biotech companies — even if they target different \
-therapeutic areas.
+- SAME-INDUSTRY PEERS: Companies in the same broad industry share regulatory, \
+institutional, and policy dynamics that count as sector_peer mechanisms — \
+even when their specific products or business models differ.
 - FACTOR EXPOSURE: Shared secondary factor exposure (yield sensitivity, size \
 factor, cyclicality, defensive characteristics) is a valid macro_sensitivity \
 mechanism after partial correlation removes broad market effects.
 - COMPOSITIONAL: Part-whole relationships (ETF contains another ETF, index \
 contains another index, instrument tracks the same underlying) are valid \
 etf_composition relationships, not spurious.
+- VALUE CHAIN: Entities connected through a production value chain (raw \
+material to processor, producer to refiner, manufacturer to distributor) \
+have a direct supply_chain relationship even when their business models \
+and revenue drivers differ.
+- GEOGRAPHIC PRODUCTION: When a country is a major producer of a commodity, \
+country indices have a valid compositional or macro_sensitivity link to \
+that commodity.
 
 THE NULL HYPOTHESIS: This correlation is noise. You are looking for evidence \
 strong enough to reject that null hypothesis. If you cannot articulate a \
@@ -240,33 +244,7 @@ but in opposite directions — growth boosts travel demand but also raises oil \
 prices. After partialling, the residual negative correlation reflects the \
 direct cost-input relationship.
 Verdict: CONFIRMED_PLAUSIBLE
-Category: supply_chain
-
-Example 8 — CONFIRMED_SPURIOUS (confidence: 0.10)
-Entities: NKE (Nike) <-> ZC=F (Corn Futures)
-Partial correlation: 0.11, positive
-Mechanism: No direct mechanism identified. Nike manufactures athletic \
-footwear and apparel using synthetic materials, rubber, and textiles. Corn \
-is a feed grain and industrial commodity. No shared supply chain, no shared \
-customer base, no regulatory overlap.
-Alternative explanations: The only conceivable path is corn -> cattle feed -> \
-leather -> shoes, which requires 3+ hops and the magnitude would be negligible. \
-This is noise.
-Verdict: CONFIRMED_SPURIOUS
-Category: none
-
-Example 9 — LIKELY_PLAUSIBLE (confidence: 0.65)
-Entities: XLP (Consumer Staples ETF) <-> XLK (Technology ETF)
-Partial correlation: -0.15, negative
-Mechanism: Defensive-growth rotation. When investors shift from growth/tech \
-into defensive/staples (or vice versa), these sectors move inversely. This is \
-a well-documented macro regime behavior — risk appetite shifts drive capital \
-between growth and defensive allocations.
-Alternative explanations: Both could respond to interest rate expectations \
-differently, but this should be partialled out. The residual negative \
-correlation captures the rotation effect specifically.
-Verdict: LIKELY_PLAUSIBLE
-Category: macro_sensitivity"""
+Category: supply_chain"""
 
 HUMAN_PROMPT = """\
 Entity A: {entity_a_id} — {entity_a_desc} (type: {entity_a_type})
@@ -282,35 +260,6 @@ VERIFICATION_PROMPT = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
     ("human", HUMAN_PROMPT),
 ])
-
-
-# ---------------------------------------------------------------------------
-# Output parser — strips markdown code fences some models wrap JSON in
-# ---------------------------------------------------------------------------
-
-class _JsonOutputParser(BaseOutputParser[VerificationResult]):
-    """Strips markdown fences, parses JSON, validates against schema."""
-
-    def parse(self, text: str) -> VerificationResult:
-        raw = text.content if hasattr(text, "content") else str(text)
-        # Strip markdown code fences if present
-        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", raw.strip())
-        cleaned = re.sub(r"\n?\s*```$", "", cleaned)
-        # If still not valid JSON, try to find JSON object in the text
-        if not cleaned.startswith("{"):
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-            if match:
-                cleaned = match.group(0)
-            else:
-                logger.error("Could not find JSON in response: %s", raw[:500])
-                raise ValueError(f"No JSON found in response: {raw[:200]}")
-        data = json.loads(cleaned)
-        # Normalize verdict and category to lowercase (model sometimes returns uppercase)
-        if "verdict" in data and isinstance(data["verdict"], str):
-            data["verdict"] = data["verdict"].lower()
-        if "relationship_category" in data and isinstance(data["relationship_category"], str):
-            data["relationship_category"] = data["relationship_category"].lower()
-        return VerificationResult.model_validate(data)
 
 
 # ---------------------------------------------------------------------------

@@ -87,7 +87,7 @@ def get_llm(
     provider: ProviderName | None = None,
     model: str | None = None,
     temperature: float = 0.0,
-    max_tokens: int = 600,
+    max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Return a LangChain chat model.
 
@@ -96,6 +96,7 @@ def get_llm(
         model: Override the model name. If None, uses settings.LLM_MODEL or the
             provider's default.
         temperature: Controls randomness. 0.0 = deterministic.
+        max_tokens: Override the max tokens. If None, uses settings.LLM_MAX_TOKENS.
 
     Returns:
         A LangChain chat model ready to use with .invoke(), .batch(),
@@ -111,6 +112,7 @@ def get_llm(
 
     config = PROVIDERS[provider_name]
     model_name = model or settings.LLM_MODEL or config.default_model
+    resolved_max_tokens = max_tokens if max_tokens is not None else settings.LLM_MAX_TOKENS
 
     # Get the API key from settings
     key_attr = API_KEY_MAP[provider_name]
@@ -130,7 +132,7 @@ def get_llm(
             model=model_name,
             api_key=api_key,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=resolved_max_tokens,
         )
 
     if config.wrapper == "anthropic":
@@ -141,7 +143,7 @@ def get_llm(
             base_url=config.base_url,
             api_key=api_key,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=resolved_max_tokens,
         )
 
     # OpenAI-compatible wrapper (groq, openrouter, and any future providers)
@@ -152,5 +154,5 @@ def get_llm(
         base_url=config.base_url,
         api_key=api_key,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_tokens=resolved_max_tokens,
     )

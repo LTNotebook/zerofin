@@ -1,21 +1,29 @@
 """Test a single verification call. Use this to check a model works
 before running the full 50-case test.
 
-Run with: python scripts/test_single.py
+Run with: python scripts/tests/test_single.py
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 os.environ["LLM_PROVIDER"] = "openrouter"
 os.environ["LLM_MODEL"] = "deepseek/deepseek-chat"
 
-from zerofin.ai.verification import build_verification_chain
+from zerofin.ai.verification import build_verification_chain  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 chain = build_verification_chain()
 result = chain.invoke({
@@ -31,9 +39,9 @@ result = chain.invoke({
     "observation_count": 189,
 })
 
-print(f"Verdict:      {result.verdict}")
-print(f"Confidence:   {result.confidence}")
-print(f"Mechanism:    {result.mechanism}")
-print(f"Alternatives: {result.alternative_explanations}")
-print(f"Category:     {result.relationship_category}")
-print(f"Reasoning:    {result.reasoning}")
+logger.info("Verdict:      %s", result.verdict)
+logger.info("Confidence:   %s", result.confidence)
+logger.info("Mechanism:    %s", result.mechanism)
+logger.info("Alternatives: %s", result.alternative_explanations)
+logger.info("Category:     %s", result.relationship_category)
+logger.info("Reasoning:    %s", result.reasoning)
