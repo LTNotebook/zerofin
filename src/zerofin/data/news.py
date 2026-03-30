@@ -194,14 +194,6 @@ RSS_FEEDS: list[dict[str, str]] = [
     },
     # NOTE: BLS feeds return 403 Forbidden. BLS data comes through FRED.
     {
-        "name": "BEA All Releases",
-        "url": "https://apps.bea.gov/rss/rss.xml",
-        "category": "economy",
-        "priority": "must_have",
-        "content_type": "summary",
-        "tier": "2",
-    },
-    {
         "name": "EIA Press Releases",
         "url": "https://www.eia.gov/rss/press_rss.xml",
         "category": "sector_energy",
@@ -216,14 +208,6 @@ RSS_FEEDS: list[dict[str, str]] = [
         "priority": "must_have",
         "content_type": "full_text",
         "tier": "1",
-    },
-    {
-        "name": "ECB Statistical Releases",
-        "url": "https://www.ecb.europa.eu/rss/statpress.html",
-        "category": "central_bank",
-        "priority": "must_have",
-        "content_type": "summary",
-        "tier": "2",
     },
     {
         "name": "Bank of Japan",
@@ -242,6 +226,24 @@ RSS_FEEDS: list[dict[str, str]] = [
         "tier": "1",
     },
     # ── Deep Analysis Sources (Tier 2) ───────────────────────────────
+    # Summary-only government sources — good data but too short for
+    # typed extraction, so Tier 2 instead of Tier 1.
+    {
+        "name": "BEA All Releases",
+        "url": "https://apps.bea.gov/rss/rss.xml",
+        "category": "economy",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
+    {
+        "name": "ECB Statistical Releases",
+        "url": "https://www.ecb.europa.eu/rss/statpress.html",
+        "category": "central_bank",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
     {
         "name": "EIA Today in Energy",
         "url": "https://www.eia.gov/rss/todayinenergy.xml",

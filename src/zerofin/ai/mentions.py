@@ -1,7 +1,7 @@
 """Entity mention indexer — identifies known entities in article text.
 
 Uses LangChain + DeepSeek to identify which tracked entities an article
-references. Creates MENTIONED_IN edges in Neo4j linking articles to entities.
+references. Creates MENTIONS edges in Neo4j linking articles to entities.
 
 This is simpler than full relationship extraction — just "which of our
 known entities does this article talk about?" No types, no directions,
@@ -136,6 +136,7 @@ def find_mentions(
     article_text: str,
     entity_list_text: str,
     chain: object | None = None,
+    valid_ids: set[str] | None = None,
 ) -> MentionResult:
     """Identify which tracked entities an article mentions.
 
@@ -145,6 +146,9 @@ def find_mentions(
         chain: Pre-built mention chain. If None, one is built internally.
             Pass a pre-built chain to avoid creating a new LLM client
             per article.
+        valid_ids: Set of valid entity IDs. If provided, returned IDs
+            are validated against this set and invalid ones are filtered
+            out with a warning.
 
     Returns:
         MentionResult with list of entity IDs found. Returns empty
@@ -161,6 +165,10 @@ def find_mentions(
     except Exception:
         logger.exception("Mention identification failed")
         return MentionResult(mentioned_ids=[])
+
+    # Validate IDs if a valid set was provided
+    if valid_ids is not None:
+        result = validate_mention_ids(result, valid_ids)
 
     logger.info("Found %d entity mentions", len(result.mentioned_ids))
     return result
@@ -198,7 +206,7 @@ def create_mentioned_in_edges(
     article_url: str,
     entity_ids: list[str],
 ) -> int:
-    """Create MENTIONED_IN edges from an article to mentioned entities.
+    """Create MENTIONS edges from an article to mentioned entities.
 
     Args:
         graph: Connected GraphStorage instance.
@@ -234,7 +242,7 @@ def create_mentioned_in_edges(
     created = result[0]["created"] if result else 0
     if created > 0:
         logger.debug(
-            "Created %d MENTIONED_IN edges for %s",
+            "Created %d MENTIONS edges for %s",
             created, article_url,
         )
     return created
