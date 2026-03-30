@@ -135,24 +135,58 @@ def build_mention_chain():
 def find_mentions(
     article_text: str,
     entity_list_text: str,
+    chain: object | None = None,
 ) -> MentionResult:
     """Identify which tracked entities an article mentions.
 
     Args:
         article_text: Title + summary of the article.
         entity_list_text: Formatted entity list from format_entity_list().
+        chain: Pre-built mention chain. If None, one is built internally.
+            Pass a pre-built chain to avoid creating a new LLM client
+            per article.
 
     Returns:
-        MentionResult with list of entity IDs found.
+        MentionResult with list of entity IDs found. Returns empty
+        result on failure.
     """
-    chain = build_mention_chain()
-    result = chain.invoke({
-        "entity_list": entity_list_text,
-        "article_text": article_text,
-    })
+    if chain is None:
+        chain = build_mention_chain()
+
+    try:
+        result = chain.invoke({
+            "entity_list": entity_list_text,
+            "article_text": article_text,
+        })
+    except Exception:
+        logger.exception("Mention identification failed")
+        return MentionResult(mentioned_ids=[])
 
     logger.info("Found %d entity mentions", len(result.mentioned_ids))
     return result
+
+
+def validate_mention_ids(
+    result: MentionResult,
+    valid_ids: set[str],
+) -> MentionResult:
+    """Filter out IDs that don't exist in the entity list.
+
+    Logs warnings for invalid IDs so we can track what the LLM
+    is hallucinating.
+    """
+    valid = []
+    for eid in result.mentioned_ids:
+        if eid in valid_ids:
+            valid.append(eid)
+        else:
+            logger.warning("Invalid entity ID returned by LLM: %s", eid)
+
+    if len(valid) < len(result.mentioned_ids):
+        dropped = len(result.mentioned_ids) - len(valid)
+        logger.info("Dropped %d invalid entity IDs", dropped)
+
+    return MentionResult(mentioned_ids=valid)
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +214,14 @@ def create_mentioned_in_edges(
     query = """
         UNWIND $entity_ids AS eid
         MATCH (a:Article {id: $article_url})
-        MATCH (e {id: eid})
-        MERGE (a)-[r:MENTIONED_IN]->(e)
+        MATCH (e)
+        WHERE e.id = eid
+          AND any(l IN labels(e) WHERE l IN [
+              'Asset', 'Company', 'Index', 'Indicator', 'Commodity',
+              'Currency', 'Country', 'CentralBank', 'GovernmentBody',
+              'Sector', 'Person', 'Event'
+          ])
+        MERGE (a)-[r:MENTIONS]->(e)
         SET r.matched_at = datetime()
         RETURN count(r) AS created
     """

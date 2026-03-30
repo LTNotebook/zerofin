@@ -197,7 +197,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "economy",
         "priority": "must_have",
         "content_type": "summary",
-        "tier": "1",
+        "tier": "2",
     },
     {
         "name": "EIA Press Releases",
@@ -221,7 +221,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "summary",
-        "tier": "1",
+        "tier": "2",
     },
     {
         "name": "Bank of Japan",

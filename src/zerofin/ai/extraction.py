@@ -816,8 +816,18 @@ def filter_hallucinated_entities(
             result.append(entity)
         else:
             # Check for partial matches (e.g. "NVIDIA" in "NVIDIA Corporation")
+            # Skip common financial words that appear in many entity names
+            stopwords = {
+                "inc", "ltd", "corp", "bank", "the", "group",
+                "fund", "trust", "capital", "global", "energy",
+                "financial", "national", "international",
+            }
             name_parts = name.split()
-            if any(part.lower() in text_lower for part in name_parts if len(part) > 2):
+            if any(
+                part.lower() in text_lower
+                for part in name_parts
+                if len(part) > 4 and part.lower() not in stopwords
+            ):
                 result.append(entity)
             else:
                 logger.info(
