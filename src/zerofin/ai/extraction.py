@@ -494,7 +494,11 @@ Dependency/Structural:
   = yes. "Baker Hughes publishes rig count" = NO — publishing data is not \
   a financial position. DO NOT use HOLDS for data reporting, research \
   coverage, or monitoring.
-- SUBSIDIARY_OF: A is owned by B as a subsidiary. Direction: subsidiary → parent.
+- SUBSIDIARY_OF: A is owned by B as a subsidiary. Direction: the \
+  CHILD company is the subject, the PARENT is the object. \
+  "Shandong Airlines is a subsidiary of Air China" = \
+  Shandong Airlines SUBSIDIARY_OF Air China. NOT Air China SUBSIDIARY_OF \
+  Shandong Airlines. The smaller/owned entity comes first.
 - LOCATED_IN: ONLY for Company/CentralBank/GovernmentBody → Country. \
   NEVER for commodities, events, indicators, or regions.
 
@@ -790,6 +794,45 @@ def extract_relationships(
     return result
 
 
+def filter_hallucinated_entities(
+    entities: list[ExtractedEntity],
+    article_text: str,
+) -> list[ExtractedEntity]:
+    """Remove entities whose text span doesn't appear in the article.
+
+    If the LLM fabricated an entity name that isn't in the article at all,
+    it's likely a hallucination. We check both the original text span and
+    the canonical name against the article.
+    """
+    text_lower = article_text.lower()
+    result: list[ExtractedEntity] = []
+
+    for entity in entities:
+        span = entity.text.strip().lower()
+        name = entity.canonical_name.strip().lower()
+        # Check if either the text span or a significant part of the
+        # canonical name appears in the article
+        if span in text_lower or name in text_lower:
+            result.append(entity)
+        else:
+            # Check for partial matches (e.g. "NVIDIA" in "NVIDIA Corporation")
+            name_parts = name.split()
+            if any(part.lower() in text_lower for part in name_parts if len(part) > 2):
+                result.append(entity)
+            else:
+                logger.info(
+                    "Hallucination filter: dropped '%s' (%s) — "
+                    "not found in article text",
+                    entity.canonical_name, entity.entity_type,
+                )
+
+    dropped = len(entities) - len(result)
+    if dropped > 0:
+        logger.info("Hallucination filter removed %d entities", dropped)
+
+    return result
+
+
 def deduplicate_entities(
     entities: list[ExtractedEntity],
 ) -> list[ExtractedEntity]:
@@ -920,7 +963,10 @@ def extract_from_article(
     # Step 1: Extract entities
     entity_result = extract_entities(article_text, existing_entities)
 
-    # Post-processing: deduplicate entities
+    # Post-processing: filter hallucinations, then deduplicate
+    entity_result.entities = filter_hallucinated_entities(
+        entity_result.entities, article_text
+    )
     entity_result.entities = deduplicate_entities(entity_result.entities)
 
     if not entity_result.entities:
