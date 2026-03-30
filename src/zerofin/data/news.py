@@ -62,6 +62,8 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 # Only MUST-HAVE feeds are included here. Nice-to-haves can be added
 # later without changing any code — just append to this list.
 
+VALID_TIERS = {"1", "2", "3"}
+
 # Source tiers control how articles are processed downstream:
 #   tier 1: Official/government — typed relationship extraction to graph
 #   tier 2: Deep analysis — event tagging + co-mention indexing
@@ -663,6 +665,11 @@ class NewsCollector(BaseCollector):
         feed_url = feed_config["url"]
         category = feed_config["category"]
         tier = feed_config.get("tier", "3")
+        if tier not in VALID_TIERS:
+            raise ValueError(
+                f"Invalid tier '{tier}' for feed '{feed_name}'. "
+                f"Must be one of: {VALID_TIERS}"
+            )
         content_type = feed_config["content_type"]
 
         logger.info("Fetching feed: %s", feed_name)
