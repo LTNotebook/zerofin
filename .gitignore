@@ -38,6 +38,7 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+scripts/tests/
 
 # Node (for React frontend later)
 node_modules/
