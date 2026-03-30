@@ -195,11 +195,8 @@ COMMODITIES: list[str] = [
 
 # Treasury yields and fixed-income ETFs
 BONDS_YIELDS: list[str] = [
-    # Yields (index-style tickers)
-    "^TNX",  # 10-Year Treasury Yield
-    "^TYX",  # 30-Year Treasury Yield
-    "^FVX",  # 5-Year Treasury Yield
-    "^IRX",  # 13-Week Treasury Bill Yield
+    # Yields now tracked via FRED indicators (DGS10, DGS30, DGS5, DGS3MO)
+    # ^TNX, ^TYX, ^FVX, ^IRX removed — tautological duplicates of FRED series
     # Bond ETFs
     "TLT",  # iShares 20+ Year Treasury
     "SHY",  # iShares 1-3 Year Treasury
@@ -393,8 +390,8 @@ REDUNDANCY_GROUPS: dict[str, dict] = {
     },
     "treasury_10y": {
         "representative": "DGS10",
-        "members": ["DGS10", "^TNX"],
-        "reason": "Same 10-year Treasury yield from two sources (FRED vs yfinance)",
+        "members": ["DGS10"],
+        "reason": "10-year Treasury yield (^TNX removed — tautological duplicate)",
     },
     "fed_funds_bounds": {
         "representative": "DFEDTARU",
@@ -548,7 +545,7 @@ FRED_LEADING: list[str] = [
     "CFNAI",  # Chicago Fed National Activity Index (85 indicators)
     "STLFSI2",  # St. Louis Fed Financial Stress Index
     "NFCI",  # Chicago Fed National Financial Conditions Index
-    "ANFCI",  # Adjusted NFCI (purer financial signal)
+    # ANFCI removed — tautological duplicate of NFCI (adjusted version)
     "SAHMCURRENT",  # Sahm Rule Recession Indicator
 ]
 
@@ -1048,13 +1045,7 @@ FRED_INDICATORS: dict[str, FredMeta] = {
         "frequency": "weekly",
         "category": "leading",
     },
-    "ANFCI": {
-        "name": "Adjusted National Financial Conditions Index",
-        "unit": "index_points",
-        "metric": "index",
-        "frequency": "weekly",
-        "category": "leading",
-    },
+    # ANFCI removed — tautological duplicate of NFCI
     "SAHMCURRENT": {
         "name": "Sahm Rule Recession Indicator",
         "unit": "percentage_points",

@@ -1057,35 +1057,8 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Large-cap gold miners; amplified gold signal with equity beta",
         "metadata": {"subtype": "commodity_etf", "commodity": "gold_miners"},
     },
-    # ── Bonds & Yields — Yield Indices ─────────────────────────────────
-    {
-        "id": "^TNX",
-        "label": "Index",
-        "name": "10-Year Treasury Yield",
-        "description": "THE global risk-free rate; mortgages, valuations, everything",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "10y"},
-    },
-    {
-        "id": "^TYX",
-        "label": "Index",
-        "name": "30-Year Treasury Yield",
-        "description": "Long-end rates; term premium, pension/insurance proxy",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "30y"},
-    },
-    {
-        "id": "^FVX",
-        "label": "Index",
-        "name": "5-Year Treasury Yield",
-        "description": "Mid-curve; Fed expectations + term premium",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "5y"},
-    },
-    {
-        "id": "^IRX",
-        "label": "Index",
-        "name": "13-Week Treasury Bill Yield",
-        "description": "Short-end proxy; near-equivalent to Fed funds target",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "13w"},
-    },
+    # Yield indices (^TNX, ^TYX, ^FVX, ^IRX) removed — tautological duplicates
+    # of FRED indicators (DGS10, DGS30, DGS5, DGS3MO)
     # ── Bonds & Yields — Bond ETFs ─────────────────────────────────────
     {
         "id": "TLT",

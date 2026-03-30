@@ -657,6 +657,7 @@ def _clear_old_partial_candidates(graph: GraphStorage, window_days: int) -> int:
             window_days: $window_days
         }]->()
         WHERE r.status IN ['candidate', 'pending_verification']
+          AND r.llm_verdict IS NULL
         DELETE r RETURN count(r) AS deleted
     """
     result = graph.run_query(query, {"window_days": window_days})
@@ -681,6 +682,7 @@ def _store_candidates_batch(
             "props": props,
         })
 
+    # Preserves status on edges that already have an LLM verdict.
     query = """
         UNWIND $batch AS item
         MATCH (a {id: item.a_id})
@@ -690,7 +692,12 @@ def _store_candidates_batch(
             method: 'partial',
             window_days: item.props.window_days
         }]->(b)
+        WITH r, item, r.status AS old_status, r.llm_verdict AS old_verdict
         SET r += item.props
+        SET r.status = CASE
+            WHEN old_verdict IS NOT NULL THEN old_status
+            ELSE item.props.status
+        END
         RETURN count(r) AS stored
     """
 
