@@ -118,6 +118,60 @@ ORDER BY timestamp ASC;
 """
 
 
+# ---------------------------------------------------------------------------
+# Verification audit trail — tracks every LLM verification pipeline run
+# and the individual results for each relationship evaluated.
+# ---------------------------------------------------------------------------
+
+# One row per pipeline run — the summary view.
+CREATE_VERIFICATION_RUNS_TABLE = """
+CREATE TABLE IF NOT EXISTS verification_runs (
+    id                  SERIAL PRIMARY KEY,
+    started_at          TIMESTAMP NOT NULL,
+    finished_at         TIMESTAMP NOT NULL,
+    duration_seconds    DECIMAL NOT NULL,
+    total_pairs         INTEGER NOT NULL,
+    promoted            INTEGER NOT NULL,
+    rejected            INTEGER NOT NULL,
+    uncertain           INTEGER NOT NULL,
+    pass1_model         TEXT NOT NULL,
+    pass2_model         TEXT
+);
+"""
+
+# One row per relationship per run — the full LLM output.
+CREATE_VERIFICATION_RESULTS_TABLE = """
+CREATE TABLE IF NOT EXISTS verification_results (
+    id                      SERIAL PRIMARY KEY,
+    run_id                  INTEGER NOT NULL REFERENCES verification_runs(id),
+    entity_a_id             TEXT NOT NULL,
+    entity_b_id             TEXT NOT NULL,
+    method                  TEXT NOT NULL,
+    window_days             INTEGER NOT NULL,
+    correlation             DECIMAL NOT NULL,
+    direction               TEXT NOT NULL,
+    verdict                 TEXT NOT NULL,
+    confidence              DECIMAL NOT NULL,
+    mechanism               TEXT NOT NULL,
+    alternative_explanations TEXT NOT NULL,
+    reasoning               TEXT NOT NULL,
+    relationship_category   TEXT NOT NULL
+);
+"""
+
+# Index for the most common query: "show me all results for a specific entity"
+CREATE_VERIFICATION_RESULTS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_verification_results_entity
+ON verification_results (entity_a_id, entity_b_id);
+"""
+
+# Index for looking up all results from a specific run
+CREATE_VERIFICATION_RESULTS_RUN_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_verification_results_run
+ON verification_results (run_id);
+"""
+
+
 class PostgresStorage:
     """Manages the PostgreSQL connection and provides methods to read/write data.
 
@@ -245,10 +299,16 @@ class PostgresStorage:
         # cursor() opens a database cursor for executing queries.
         # The `with` block auto-closes the cursor when done.
         with self._conn.cursor() as cursor:
+            # Market data
             cursor.execute(CREATE_DATA_POINTS_TABLE)
             cursor.execute(CREATE_DATA_POINTS_INDEX)
             cursor.execute(CREATE_DATA_POINTS_UNIQUE)
             cursor.execute(CREATE_DATA_POINTS_PARTIAL_INDEX)
+            # Verification audit trail
+            cursor.execute(CREATE_VERIFICATION_RUNS_TABLE)
+            cursor.execute(CREATE_VERIFICATION_RESULTS_TABLE)
+            cursor.execute(CREATE_VERIFICATION_RESULTS_INDEX)
+            cursor.execute(CREATE_VERIFICATION_RESULTS_RUN_INDEX)
 
         # Commit the transaction — without this, the table creation would be
         # rolled back when the connection closes.
@@ -388,6 +448,142 @@ class PostgresStorage:
         count = len(data_points)
         logger.info("Batch inserted %d data points", count)
         return count
+
+    # ------------------------------------------------------------------
+    # Verification audit trail
+    # ------------------------------------------------------------------
+
+    def insert_verification_run(
+        self,
+        *,
+        started_at: str,
+        finished_at: str,
+        duration_seconds: float,
+        total_pairs: int,
+        promoted: int,
+        rejected: int,
+        uncertain: int,
+        pass1_model: str,
+        pass2_model: str | None = None,
+    ) -> int:
+        """Record a verification pipeline run and return its id.
+
+        Args:
+            started_at: ISO 8601 timestamp when the run started.
+            finished_at: ISO 8601 timestamp when the run finished.
+            duration_seconds: How long the run took.
+            total_pairs: Total relationships evaluated.
+            promoted: Count promoted to candidate.
+            rejected: Count rejected.
+            uncertain: Count still uncertain.
+            pass1_model: Model used for first pass (e.g. "deepseek/deepseek-chat").
+            pass2_model: Model used for second pass, if any.
+
+        Returns:
+            The auto-generated id of the run row.
+        """
+        query = """
+            INSERT INTO verification_runs (
+                started_at, finished_at, duration_seconds,
+                total_pairs, promoted, rejected, uncertain,
+                pass1_model, pass2_model
+            )
+            VALUES (
+                %(started_at)s, %(finished_at)s, %(duration_seconds)s,
+                %(total_pairs)s, %(promoted)s, %(rejected)s, %(uncertain)s,
+                %(pass1_model)s, %(pass2_model)s
+            )
+            RETURNING id;
+        """
+
+        params = {
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_seconds": duration_seconds,
+            "total_pairs": total_pairs,
+            "promoted": promoted,
+            "rejected": rejected,
+            "uncertain": uncertain,
+            "pass1_model": pass1_model,
+            "pass2_model": pass2_model,
+        }
+
+        with self._conn.cursor() as cursor:
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+
+        self._conn.commit()
+
+        run_id: int = row["id"]
+        logger.info("Recorded verification run id=%d (%d pairs)", run_id, total_pairs)
+        return run_id
+
+    def insert_verification_results(
+        self,
+        run_id: int,
+        results: list[dict],
+    ) -> int:
+        """Store the detailed LLM output for each relationship in a run.
+
+        Args:
+            run_id: The id from insert_verification_run().
+            results: List of result dicts (same format as the CSV rows).
+
+        Returns:
+            Number of rows inserted.
+        """
+        if not results:
+            return 0
+
+        query = """
+            INSERT INTO verification_results (
+                run_id, entity_a_id, entity_b_id, method, window_days,
+                correlation, direction, verdict, confidence,
+                mechanism, alternative_explanations, reasoning,
+                relationship_category
+            )
+            VALUES (
+                %(run_id)s, %(entity_a_id)s, %(entity_b_id)s,
+                %(method)s, %(window_days)s, %(correlation)s,
+                %(direction)s, %(verdict)s, %(confidence)s,
+                %(mechanism)s, %(alternative_explanations)s,
+                %(reasoning)s, %(relationship_category)s
+            )
+        """
+
+        rows = [
+            {
+                "run_id": run_id,
+                "entity_a_id": r["entity_a_id"],
+                "entity_b_id": r["entity_b_id"],
+                "method": r.get("method", "partial"),
+                "window_days": r["window_days"],
+                "correlation": r["correlation"],
+                "direction": r["direction"],
+                "verdict": r["verdict"],
+                "confidence": r["confidence"],
+                "mechanism": r["mechanism"],
+                "alternative_explanations": r["alternative_explanations"],
+                "reasoning": r["reasoning"],
+                "relationship_category": r["relationship_category"],
+            }
+            for r in results
+        ]
+
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(query, rows)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.error(
+                "Failed to insert %d verification results — rolled back",
+                len(rows),
+            )
+            raise
+
+        logger.info("Inserted %d verification results for run %d", len(rows), run_id)
+        return len(rows)
 
     # ------------------------------------------------------------------
     # Read operations

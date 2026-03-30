@@ -375,9 +375,10 @@ def needs_second_pass(result: VerificationResult) -> bool:
         return False
     if result.verdict == "uncertain":
         return True
-    if result.verdict == "likely_spurious" and result.confidence < settings.VERIFICATION_REVIEW_THRESHOLD:
+    threshold = settings.VERIFICATION_REVIEW_THRESHOLD
+    if result.verdict == "likely_spurious" and result.confidence < threshold:
         return True
-    if result.verdict == "likely_plausible" and result.confidence < settings.VERIFICATION_REVIEW_THRESHOLD:
+    if result.verdict == "likely_plausible" and result.confidence < threshold:
         return True
     return False
 

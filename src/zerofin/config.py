@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import platformdirs
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -51,6 +52,16 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "deepseek/deepseek-chat"
     # Maximum tokens for LLM responses
     LLM_MAX_TOKENS: int = 600
+
+    # --- Output Directory ---
+    # Where CSV outputs and logs are written. Defaults to the OS-standard
+    # user data directory (e.g. C:\Users\B\AppData\Local\zerofin on Windows).
+    LOG_OUTPUT_DIR: str = str(Path(platformdirs.user_data_dir("zerofin", appauthor=False)))
+
+    # --- Extraction Pipeline ---
+    # Minimum confidence for extracted relationships. Below this, the
+    # relationship is rejected by the Pydantic validator and not stored.
+    MIN_RELATIONSHIP_CONFIDENCE: float = 0.70
 
     # --- Verification Pipeline ---
     # Maximum pairs to process in one verification run (cost protection)
