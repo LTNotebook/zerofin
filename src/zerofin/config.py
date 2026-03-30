@@ -59,9 +59,16 @@ class Settings(BaseSettings):
     LOG_OUTPUT_DIR: str = str(Path(platformdirs.user_data_dir("zerofin", appauthor=False)))
 
     # --- Extraction Pipeline ---
+    # Model for article extraction (may differ from verification model)
+    EXTRACTION_MODEL: str = "deepseek/deepseek-chat"
+    # Maximum Instructor retries on validation failure per extraction call
+    EXTRACTION_MAX_RETRIES: int = 1
     # Minimum confidence for extracted relationships. Below this, the
     # relationship is rejected by the Pydantic validator and not stored.
     MIN_RELATIONSHIP_CONFIDENCE: float = 0.70
+
+    # --- Verification Pipeline (Pass 2) ---
+    VERIFICATION_PASS2_MODEL: str = "anthropic/claude-sonnet-4.6"
 
     # --- Verification Pipeline ---
     # Maximum pairs to process in one verification run (cost protection)

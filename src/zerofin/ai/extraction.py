@@ -352,11 +352,11 @@ Person:
 1. Extract ONLY entities explicitly mentioned in the article.
 2. Use the reasoning field to check your classification before committing.
 3. Do not extract regions, continents, or generic terms.
-6. Do not extract the article's publisher or source as an entity. \
+4. Do not extract the article's publisher or source as an entity. \
    BBC, CNBC, Reuters, MarketWatch, Bloomberg, SCMP, etc. are news \
    outlets reporting the story — they are not financial entities in it.
-4. Use the most formal canonical name for each entity.
-5. Different text mentions of the same real-world entity = ONE object in \
+5. Use the most formal canonical name for each entity.
+6. Different text mentions of the same real-world entity = ONE object in \
    your output list. If you assign two entities the same canonical_name, \
    that is a bug — merge them into one and use the first text span as \
    the "text" field. Do not return two objects with the same canonical_name.
@@ -405,14 +405,15 @@ CORRECT: No relationship extracted. The IEA's recommendation does not \
 constitute a relationship with Crude Oil.
 
 Example 4 — Contrastive (LOCATED_IN restrictions):
-Entities: [Crude Oil (Commodity), Saudi Arabia (Country)]
-Article: "Saudi Arabian oil production fell."
+Entities: [Saudi Aramco (Company), Saudi Arabia (Country)]
+Article: "Saudi Aramco announced increased shipments to South Korean refiners."
 
 WRONG: Crude Oil LOCATED_IN Saudi Arabia ← WRONG. Commodities are not \
 "located in" countries. LOCATED_IN is ONLY for Company/Institution → Country.
 
-CORRECT: Saudi Arabia SUPPLIES_TO Crude Oil (conf: 0.80) — Saudi Arabia \
-is an oil producer, supplying crude to the global market.
+CORRECT: Saudi Aramco LOCATED_IN Saudi Arabia (conf: 0.90) — company \
+headquartered in a country. Saudi Aramco SUPPLIES_TO South Korean refiners \
+(conf: 0.85) — supplier to buyer, both institutions.
 
 Example 5 — Contrastive (data reporting ≠ financial relationship):
 Entities: [Baker Hughes Company (Company), Baker Hughes Rig Count (Indicator), \
@@ -682,13 +683,14 @@ def check_relevance(title: str, summary: str = "") -> RelevanceResult:
         text += f"\n{summary[:200]}"  # First 200 chars of summary is enough
 
     result = client.chat.completions.create(
-        model="deepseek/deepseek-chat",
+        model=settings.EXTRACTION_MODEL,
         temperature=0.1,
         messages=[
             {"role": "system", "content": RELEVANCE_PROMPT},
             {"role": "user", "content": text},
         ],
         response_model=RelevanceResult,
+        max_retries=settings.EXTRACTION_MAX_RETRIES,
     )
 
     logger.info("Relevance: %s (%s)", result.relevance, result.reasoning[:80])
@@ -724,13 +726,14 @@ def extract_entities(
         )
 
     result = client.chat.completions.create(
-        model="deepseek/deepseek-chat",
+        model=settings.EXTRACTION_MODEL,
         temperature=0.1,
         messages=[
             {"role": "system", "content": ENTITY_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
         response_model=EntityExtractionResult,
+        max_retries=settings.EXTRACTION_MAX_RETRIES,
     )
 
     logger.info(
@@ -770,13 +773,14 @@ def extract_relationships(
     )
 
     result = client.chat.completions.create(
-        model="deepseek/deepseek-chat",
+        model=settings.EXTRACTION_MODEL,
         temperature=0.1,
         messages=[
             {"role": "system", "content": RELATIONSHIP_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
         response_model=RelationshipExtractionResult,
+        max_retries=settings.EXTRACTION_MAX_RETRIES,
     )
 
     if result.skipped:
@@ -836,6 +840,66 @@ def deduplicate_relationships(
     return result
 
 
+def validate_relationships(
+    relationships: list[ExtractedRelationship],
+    entities: list[ExtractedEntity],
+) -> list[ExtractedRelationship]:
+    """Post-processing validation rules that catch deterministic errors.
+
+    Rules:
+    1. SUPPLIES_TO cannot have a Commodity as the receiver.
+    2. Both subject and object must match an extracted entity name.
+    """
+    entity_names = {
+        e.canonical_name.strip().lower() for e in entities
+    }
+    entity_types = {
+        e.canonical_name.strip().lower(): e.entity_type
+        for e in entities
+    }
+
+    result: list[ExtractedRelationship] = []
+
+    for rel in relationships:
+        obj_key = rel.object.strip().lower()
+        subj_key = rel.subject.strip().lower()
+
+        # Rule 1: SUPPLIES_TO receiver cannot be a Commodity
+        if rel.relationship_type == "SUPPLIES_TO":
+            obj_type = entity_types.get(obj_key)
+            if obj_type == "Commodity":
+                logger.info(
+                    "Validation: dropped %s→%s SUPPLIES_TO "
+                    "(receiver is a Commodity, not an institution)",
+                    rel.subject, rel.object,
+                )
+                continue
+
+        # Rule 2: Both subject and object must be extracted entities
+        if subj_key not in entity_names:
+            logger.info(
+                "Validation: dropped %s→%s %s "
+                "(subject not in extracted entities)",
+                rel.subject, rel.object, rel.relationship_type,
+            )
+            continue
+        if obj_key not in entity_names:
+            logger.info(
+                "Validation: dropped %s→%s %s "
+                "(object not in extracted entities)",
+                rel.subject, rel.object, rel.relationship_type,
+            )
+            continue
+
+        result.append(rel)
+
+    dropped = len(relationships) - len(result)
+    if dropped > 0:
+        logger.info("Validation removed %d invalid relationships", dropped)
+
+    return result
+
+
 def extract_from_article(
     article_text: str,
     existing_entities: str = "",
@@ -875,8 +939,13 @@ def extract_from_article(
     # Step 2: Extract relationships using entity anchors
     rel_result = extract_relationships(article_text, entity_result.entities)
 
-    # Post-processing: deduplicate relationships
+    # Post-processing: deduplicate and validate relationships
     if rel_result and not rel_result.skipped:
-        rel_result.relationships = deduplicate_relationships(rel_result.relationships)
+        rel_result.relationships = deduplicate_relationships(
+            rel_result.relationships
+        )
+        rel_result.relationships = validate_relationships(
+            rel_result.relationships, entity_result.entities
+        )
 
     return entity_result, rel_result

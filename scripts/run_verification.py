@@ -284,7 +284,7 @@ def write_to_postgres(results: list[dict], duration_seconds: float) -> None:
             rejected=rejected,
             uncertain=uncertain,
             pass1_model=settings.LLM_MODEL,
-            pass2_model="anthropic/claude-sonnet-4.6",
+            pass2_model=settings.VERIFICATION_PASS2_MODEL,
         )
         db.insert_verification_results(run_id, results)
 
