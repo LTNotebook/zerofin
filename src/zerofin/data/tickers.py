@@ -98,6 +98,7 @@ KEY_STOCKS: list[str] = [
     "PSX",  # Phillips 66 — midstream + refining
     "KMI",  # Kinder Morgan — natural gas pipeline infrastructure
     # Defense / Aerospace
+    "BA",   # Boeing — commercial + defense aerospace
     "LMT",
     "RTX",
     "NOC",
@@ -296,6 +297,7 @@ STOCK_SECTOR_MAP: dict[str, dict[str, str]] = {
     "PSX":   {"sector": "XLE"},
     "KMI":   {"sector": "XLE"},
     # Industrials
+    "BA":    {"sector": "XLI", "sub_sector": "ITA"},
     "LMT":   {"sector": "XLI", "sub_sector": "ITA"},
     "RTX":   {"sector": "XLI", "sub_sector": "ITA"},
     "GD":    {"sector": "XLI", "sub_sector": "ITA"},

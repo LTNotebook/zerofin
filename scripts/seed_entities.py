@@ -527,6 +527,13 @@ ENTITY_SEED_DATA: list[dict] = [
     },
     # ── Key Stocks — Defense & Aerospace ───────────────────────────────
     {
+        "id": "BA",
+        "label": "Company",
+        "name": "Boeing Company",
+        "description": "Commercial aircraft, defense systems, space; 737/787/777 programs",
+        "metadata": {"sector": "Industrials"},
+    },
+    {
         "id": "LMT",
         "label": "Company",
         "name": "Lockheed Martin Corporation",
@@ -1600,6 +1607,7 @@ STRUCTURAL_RELATIONSHIPS: list[tuple[str, str, str, str, str, dict]] = [
     ("Company", "COP", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
     ("Company", "SLB", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
     # Defense / Aerospace
+    ("Company", "BA", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "LMT", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "RTX", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "NOC", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),

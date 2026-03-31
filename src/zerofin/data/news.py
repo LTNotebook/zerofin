@@ -308,6 +308,14 @@ RSS_FEEDS: list[dict[str, str]] = [
         "content_type": "full_text",
         "tier": "2",
     },
+    {
+        "name": "TechCrunch",
+        "url": "https://techcrunch.com/feed/",
+        "category": "sector_tech",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "2",
+    },
     # ── International News (Tier 3) ──────────────────────────────────
     {
         "name": "BBC Business",
