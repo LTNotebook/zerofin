@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 import pendulum
+from langchain_core.runnables import Runnable
 
 # UTF-8 output for Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -46,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # How many articles to process in parallel per chunk
-CHUNK_SIZE = 20
+CHUNK_SIZE = settings.MENTIONS_CHUNK_SIZE
 
 # ---------------------------------------------------------------------------
 # Cypher queries
@@ -65,6 +66,13 @@ UPDATE_STATUS_QUERY = """
     UNWIND $urls AS url
     MATCH (a:Article {id: url})
     SET a.status = 'mentions_done',
+        a.mentions_processed_at = datetime()
+"""
+
+UPDATE_FAILED_QUERY = """
+    UNWIND $urls AS url
+    MATCH (a:Article {id: url})
+    SET a.status = 'mentions_failed',
         a.mentions_processed_at = datetime()
 """
 
@@ -116,7 +124,7 @@ def build_result_row(article: dict, mention_ids: list[str]) -> dict:
 def process_chunk(
     graph: GraphStorage,
     chunk: list[dict],
-    chain: object,
+    chain: Runnable,
     entity_list_text: str,
     valid_ids: set[str],
     chunk_num: int,
@@ -143,30 +151,41 @@ def process_chunk(
 
     chunk_results = []
     total_edges = 0
+    succeeded_urls = []
+    failed_urls = []
 
     for article, result in zip(chunk, results):
         # Guard against unexpected None or non-MentionResult responses
         if not isinstance(result, MentionResult):
             logger.warning(
-                "Unexpected result type for '%s': %s — treating as empty",
+                "LLM failed for '%s': %s — marking as mentions_failed",
                 article["title"][:60], type(result).__name__,
             )
-            mention_ids: list[str] = []
-        else:
-            validated = validate_mention_ids(result, valid_ids)
-            mention_ids = validated.mentioned_ids
+            failed_urls.append(article["url"])
+            chunk_results.append(build_result_row(article, []))
+            continue
+
+        validated = validate_mention_ids(result, valid_ids)
+        mention_ids = validated.mentioned_ids
 
         # Create MENTIONS edges
         edges_created = create_mentioned_in_edges(
             graph, article["url"], mention_ids,
         )
         total_edges += edges_created
+        succeeded_urls.append(article["url"])
 
         chunk_results.append(build_result_row(article, mention_ids))
 
-    # Update status for all articles in this chunk
-    urls = [a["url"] for a in chunk]
-    graph.run_query(UPDATE_STATUS_QUERY, {"urls": urls})
+    # Update status separately for successes and failures
+    if succeeded_urls:
+        graph.run_query(UPDATE_STATUS_QUERY, {"urls": succeeded_urls})
+    if failed_urls:
+        graph.run_query(UPDATE_FAILED_QUERY, {"urls": failed_urls})
+        logger.warning(
+            "Chunk %d/%d: %d articles marked mentions_failed",
+            chunk_num, total_chunks, len(failed_urls),
+        )
 
     logger.info(
         "Chunk %d/%d complete — %d edges created across %d articles",
@@ -187,7 +206,7 @@ CSV_FIELDS = [
 
 def get_csv_path() -> Path:
     """Build the timestamped CSV path in the mentions output directory."""
-    today = pendulum.now().format("YYYY-MM-DD")
+    today = pendulum.now("UTC").format("YYYY-MM-DD")
     output_dir = Path(settings.LOG_OUTPUT_DIR) / "mentions"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir / f"mentions_{today}.csv"

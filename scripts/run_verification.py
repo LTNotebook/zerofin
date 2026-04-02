@@ -87,7 +87,7 @@ SET r.llm_verdict = row.verdict,
 
 def _get_csv_path() -> Path:
     """Build the timestamped CSV path in the verification output directory."""
-    today = pendulum.now().format("YYYY-MM-DD")
+    today = pendulum.now("UTC").format("YYYY-MM-DD")
     output_dir = Path(settings.LOG_OUTPUT_DIR) / "verification"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir / f"verification_{today}.csv"
@@ -275,7 +275,7 @@ def write_to_postgres(results: list[dict], duration_seconds: float) -> None:
     started = pendulum.now("UTC").subtract(seconds=duration_seconds).to_iso8601_string()
 
     with PostgresStorage() as db:
-        run_id = db.insert_verification_run(
+        db.insert_verification_run(
             started_at=started,
             finished_at=now,
             duration_seconds=duration_seconds,
@@ -285,8 +285,8 @@ def write_to_postgres(results: list[dict], duration_seconds: float) -> None:
             uncertain=uncertain,
             pass1_model=settings.LLM_MODEL,
             pass2_model=settings.VERIFICATION_PASS2_MODEL,
+            results=results,
         )
-        db.insert_verification_results(run_id, results)
 
 
 def main() -> None:

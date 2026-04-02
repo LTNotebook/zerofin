@@ -13,9 +13,11 @@ from __future__ import annotations
 import logging
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
 from zerofin.ai.provider import get_llm
+from zerofin.config import settings
 from zerofin.storage.graph import GraphStorage
 
 logger = logging.getLogger(__name__)
@@ -117,13 +119,13 @@ MENTION_PROMPT = ChatPromptTemplate.from_messages([
 # Chain builder
 # ---------------------------------------------------------------------------
 
-def build_mention_chain():
+def build_mention_chain() -> Runnable:
     """Build a LangChain chain for entity mention identification.
 
     Returns a chain that accepts entity_list and article_text,
     and returns a MentionResult.
     """
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.1, max_tokens=settings.MENTIONS_MAX_TOKENS)
     structured_llm = llm.with_structured_output(MentionResult)
     return MENTION_PROMPT | structured_llm
 
@@ -135,7 +137,7 @@ def build_mention_chain():
 def find_mentions(
     article_text: str,
     entity_list_text: str,
-    chain: object | None = None,
+    chain: Runnable | None = None,
     valid_ids: set[str] | None = None,
 ) -> MentionResult:
     """Identify which tracked entities an article mentions.

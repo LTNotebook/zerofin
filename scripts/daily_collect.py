@@ -22,12 +22,14 @@ from typing import Any
 import pendulum
 
 from zerofin.ai.mentions import (
+    MentionResult,
     build_entity_list,
     build_mention_chain,
     create_mentioned_in_edges,
     format_entity_list,
     validate_mention_ids,
 )
+from zerofin.config import settings
 from zerofin.data.economic import EconomicCollector
 from zerofin.data.news import NewsCollector
 from zerofin.data.prices import PriceCollector
@@ -118,11 +120,12 @@ def run_pipeline() -> dict[str, Any]:
                 if skipped > 0:
                     logger.info("Skipped %d headline-only articles", skipped)
 
-                # Fetch articles to process
+                # Fetch recently collected articles only (last 6 hours)
                 raw_articles = graph.run_query(
                     "MATCH (a:Article) "
                     "WHERE a.status = 'raw' "
                     "  AND a.summary IS NOT NULL AND a.summary <> '' "
+                    "  AND a.collected_at > datetime() - duration({hours: 6}) "
                     "RETURN a.id AS url, a.title AS title, a.summary AS summary, "
                     "       a.source AS source, a.tier AS tier "
                     "ORDER BY a.collected_at DESC"
@@ -134,10 +137,10 @@ def run_pipeline() -> dict[str, Any]:
                     valid_ids = {e["id"] for e in entities}
                     chain = build_mention_chain()
 
-                    # Process in chunks of 20
-                    chunk_size = 20
+                    chunk_size = settings.MENTIONS_CHUNK_SIZE
                     total_edges = 0
                     processed = 0
+                    failed = 0
 
                     for i in range(0, len(raw_articles), chunk_size):
                         chunk = raw_articles[i : i + chunk_size]
@@ -153,30 +156,52 @@ def run_pipeline() -> dict[str, Any]:
                             inputs, config={"max_concurrency": chunk_size}
                         )
 
+                        succeeded_urls = []
+                        failed_urls = []
+
                         for article, result in zip(chunk, batch_results):
+                            if not isinstance(result, MentionResult):
+                                logger.warning(
+                                    "LLM failed for '%s' — marking mentions_failed",
+                                    article["title"][:60],
+                                )
+                                failed_urls.append(article["url"])
+                                continue
+
                             validated = validate_mention_ids(result, valid_ids)
                             edges = create_mentioned_in_edges(
                                 graph, article["url"], validated.mentioned_ids,
                             )
                             total_edges += edges
+                            succeeded_urls.append(article["url"])
 
-                        # Update status
-                        urls = [a["url"] for a in chunk]
-                        graph.run_query(
-                            "UNWIND $urls AS url "
-                            "MATCH (a:Article {id: url}) "
-                            "SET a.status = 'mentions_done', "
-                            "    a.mentions_processed_at = datetime()",
-                            {"urls": urls},
-                        )
-                        processed += len(chunk)
+                        # Update status separately
+                        if succeeded_urls:
+                            graph.run_query(
+                                "UNWIND $urls AS url "
+                                "MATCH (a:Article {id: url}) "
+                                "SET a.status = 'mentions_done', "
+                                "    a.mentions_processed_at = datetime()",
+                                {"urls": succeeded_urls},
+                            )
+                        if failed_urls:
+                            graph.run_query(
+                                "UNWIND $urls AS url "
+                                "MATCH (a:Article {id: url}) "
+                                "SET a.status = 'mentions_failed', "
+                                "    a.mentions_processed_at = datetime()",
+                                {"urls": failed_urls},
+                            )
+                        processed += len(succeeded_urls)
+                        failed += len(failed_urls)
 
                     logger.info(
-                        "Mentions: %d articles processed, %d edges created",
-                        processed, total_edges,
+                        "Mentions: %d processed, %d failed, %d edges",
+                        processed, failed, total_edges,
                     )
                     results["collectors"]["mentions"] = {
                         "processed": processed,
+                        "failed": failed,
                         "edges_created": total_edges,
                         "skipped": skipped,
                     }

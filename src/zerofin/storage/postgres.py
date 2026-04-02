@@ -465,8 +465,12 @@ class PostgresStorage:
         uncertain: int,
         pass1_model: str,
         pass2_model: str | None = None,
+        results: list[dict] | None = None,
     ) -> int:
-        """Record a verification pipeline run and return its id.
+        """Record a verification run and its results in a single transaction.
+
+        Both the run summary and individual results are saved together.
+        If either fails, everything rolls back — no orphan run rows.
 
         Args:
             started_at: ISO 8601 timestamp when the run started.
@@ -478,11 +482,13 @@ class PostgresStorage:
             uncertain: Count still uncertain.
             pass1_model: Model used for first pass (e.g. "deepseek/deepseek-chat").
             pass2_model: Model used for second pass, if any.
+            results: List of result dicts (same format as the CSV rows).
+                If provided, inserted in the same transaction as the run.
 
         Returns:
             The auto-generated id of the run row.
         """
-        query = """
+        run_query = """
             INSERT INTO verification_runs (
                 started_at, finished_at, duration_seconds,
                 total_pairs, promoted, rejected, uncertain,
@@ -496,7 +502,7 @@ class PostgresStorage:
             RETURNING id;
         """
 
-        params = {
+        run_params = {
             "started_at": started_at,
             "finished_at": finished_at,
             "duration_seconds": duration_seconds,
@@ -508,14 +514,65 @@ class PostgresStorage:
             "pass2_model": pass2_model,
         }
 
-        with self._conn.cursor() as cursor:
-            cursor.execute(query, params)
-            row = cursor.fetchone()
+        results_query = """
+            INSERT INTO verification_results (
+                run_id, entity_a_id, entity_b_id, method, window_days,
+                correlation, direction, verdict, confidence,
+                mechanism, alternative_explanations, reasoning,
+                relationship_category
+            )
+            VALUES (
+                %(run_id)s, %(entity_a_id)s, %(entity_b_id)s,
+                %(method)s, %(window_days)s, %(correlation)s,
+                %(direction)s, %(verdict)s, %(confidence)s,
+                %(mechanism)s, %(alternative_explanations)s,
+                %(reasoning)s, %(relationship_category)s
+            )
+        """
 
-        self._conn.commit()
+        try:
+            with self._conn.cursor() as cursor:
+                # Insert run row and get the ID
+                cursor.execute(run_query, run_params)
+                row = cursor.fetchone()
+                run_id: int = row["id"]
 
-        run_id: int = row["id"]
-        logger.info("Recorded verification run id=%d (%d pairs)", run_id, total_pairs)
+                # Insert results in the same transaction
+                if results:
+                    rows = [
+                        {
+                            "run_id": run_id,
+                            "entity_a_id": r["entity_a_id"],
+                            "entity_b_id": r["entity_b_id"],
+                            "method": r.get("method", "partial"),
+                            "window_days": r["window_days"],
+                            "correlation": r["correlation"],
+                            "direction": r["direction"],
+                            "verdict": r["verdict"],
+                            "confidence": r["confidence"],
+                            "mechanism": r["mechanism"],
+                            "alternative_explanations": r["alternative_explanations"],
+                            "reasoning": r["reasoning"],
+                            "relationship_category": r["relationship_category"],
+                        }
+                        for r in results
+                    ]
+                    cursor.executemany(results_query, rows)
+
+            # Single commit for both run + results
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.error(
+                "Failed to insert verification run + results — rolled back",
+            )
+            raise
+
+        result_count = len(results) if results else 0
+        logger.info(
+            "Recorded verification run id=%d (%d pairs, %d results)",
+            run_id, total_pairs, result_count,
+        )
         return run_id
 
     def insert_verification_results(
@@ -523,7 +580,11 @@ class PostgresStorage:
         run_id: int,
         results: list[dict],
     ) -> int:
-        """Store the detailed LLM output for each relationship in a run.
+        """Store detailed LLM output for each relationship in a run.
+
+        Prefer using insert_verification_run(results=...) instead to
+        keep everything in one transaction. This method exists for
+        backward compatibility.
 
         Args:
             run_id: The id from insert_verification_run().

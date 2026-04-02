@@ -16,7 +16,7 @@ How it works:
 
 Why Article nodes bypass create_entity():
 Article is not one of the 12 FinDKG entity types — it's a content node
-that will later be connected TO entities via MENTIONED_IN edges. We use
+that will later be connected TO entities via MENTIONS edges. We use
 run_query() with a direct MERGE to create Article nodes without needing
 to modify ENTITY_LABELS.
 """
@@ -314,7 +314,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "sector_tech",
         "priority": "must_have",
         "content_type": "full_text",
-        "tier": "2",
+        "tier": "3",
     },
     # ── International News (Tier 3) ──────────────────────────────────
     {
@@ -562,7 +562,7 @@ class NewsCollector(BaseCollector):
     the AI pipeline will:
     1. Read article text
     2. Extract mentioned entities (companies, indicators, etc.)
-    3. Create MENTIONED_IN edges linking entities to articles
+    3. Create MENTIONS edges linking articles to entities
     4. Generate embeddings for vector similarity search
 
     Usage:

@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # user data directory (e.g. C:\Users\B\AppData\Local\zerofin on Windows).
     LOG_OUTPUT_DIR: str = str(Path(platformdirs.user_data_dir("zerofin", appauthor=False)))
 
+    # --- Mentions Pipeline ---
+    # Maximum tokens for mention identification responses (list of entity IDs)
+    MENTIONS_MAX_TOKENS: int = 1500
+    # Articles per chunk for parallel mention processing
+    MENTIONS_CHUNK_SIZE: int = 20
+
     # --- Extraction Pipeline ---
     # Model for article extraction (may differ from verification model)
     EXTRACTION_MODEL: str = "deepseek/deepseek-chat"

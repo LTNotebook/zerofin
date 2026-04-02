@@ -5,7 +5,7 @@ Two-step extraction pipeline:
 2. Relationship pass: extract relationships using entity anchors from step 1
 
 Uses Instructor for structured output with automatic validation and retry.
-Pydantic models enforce our 12 entity types and 16 relationship types.
+Pydantic models enforce our 12 entity types and 17 relationship types.
 """
 
 from __future__ import annotations
