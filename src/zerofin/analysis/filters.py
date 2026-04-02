@@ -397,7 +397,7 @@ FRED_CATEGORY_MAP: dict[str, str] = {
     "BAMLH0A0HYM2": "fred_credit", "BAMLC0A0CM": "fred_credit",
     "BAMLH0A0HYM2EY": "fred_credit",
     "CFNAI": "fred_credit", "STLFSI2": "fred_credit",
-    "NFCI": "fred_credit", "ANFCI": "fred_credit",
+    "NFCI": "fred_credit",
     "SAHMCURRENT": "fred_credit",
     "DRTSCILM": "fred_credit", "DRALACBS": "fred_credit",
     "TOTALSL": "fred_credit", "TOTBKCR": "fred_credit",
@@ -444,9 +444,7 @@ ASSET_CATEGORY_PREFIXES: dict[str, str] = {
     "INDA": "intl_etf", "EWG": "intl_etf", "VNM": "intl_etf",
     "KSA": "intl_etf", "EWZ": "intl_etf", "EWT": "intl_etf",
     "EWY": "intl_etf",
-    # Yield indices
-    "^TNX": "yield_index", "^TYX": "yield_index",
-    "^FVX": "yield_index", "^IRX": "yield_index",
+    # Yield indices removed — tautological duplicates of FRED rates
     # Volatility
     "^VIX": "volatility", "^VVIX": "volatility",
     "^MOVE": "volatility", "^GVZ": "volatility", "^OVX": "volatility",

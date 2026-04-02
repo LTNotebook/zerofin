@@ -527,6 +527,13 @@ ENTITY_SEED_DATA: list[dict] = [
     },
     # ── Key Stocks — Defense & Aerospace ───────────────────────────────
     {
+        "id": "BA",
+        "label": "Company",
+        "name": "Boeing Company",
+        "description": "Commercial aircraft, defense systems, space; 737/787/777 programs",
+        "metadata": {"sector": "Industrials"},
+    },
+    {
         "id": "LMT",
         "label": "Company",
         "name": "Lockheed Martin Corporation",
@@ -1057,35 +1064,8 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "Large-cap gold miners; amplified gold signal with equity beta",
         "metadata": {"subtype": "commodity_etf", "commodity": "gold_miners"},
     },
-    # ── Bonds & Yields — Yield Indices ─────────────────────────────────
-    {
-        "id": "^TNX",
-        "label": "Index",
-        "name": "10-Year Treasury Yield",
-        "description": "THE global risk-free rate; mortgages, valuations, everything",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "10y"},
-    },
-    {
-        "id": "^TYX",
-        "label": "Index",
-        "name": "30-Year Treasury Yield",
-        "description": "Long-end rates; term premium, pension/insurance proxy",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "30y"},
-    },
-    {
-        "id": "^FVX",
-        "label": "Index",
-        "name": "5-Year Treasury Yield",
-        "description": "Mid-curve; Fed expectations + term premium",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "5y"},
-    },
-    {
-        "id": "^IRX",
-        "label": "Index",
-        "name": "13-Week Treasury Bill Yield",
-        "description": "Short-end proxy; near-equivalent to Fed funds target",
-        "metadata": {"category": "yield", "subtype": "yield", "maturity": "13w"},
-    },
+    # Yield indices (^TNX, ^TYX, ^FVX, ^IRX) removed — tautological duplicates
+    # of FRED indicators (DGS10, DGS30, DGS5, DGS3MO)
     # ── Bonds & Yields — Bond ETFs ─────────────────────────────────────
     {
         "id": "TLT",
@@ -1505,6 +1485,83 @@ ENTITY_SEED_DATA: list[dict] = [
         "description": "ASML headquarters; key node in global semiconductor supply chain",
         "metadata": {},
     },
+    {
+        "id": "IRAN",
+        "label": "Country",
+        "name": "Iran",
+        "description": "Major oil producer; geopolitical hotspot, OPEC member",
+        "metadata": {},
+    },
+    {
+        "id": "RUSSIA",
+        "label": "Country",
+        "name": "Russia",
+        "description": "Major oil/gas exporter; sanctions, geopolitical risk",
+        "metadata": {},
+    },
+    {
+        "id": "UK",
+        "label": "Country",
+        "name": "United Kingdom",
+        "description": "Major economy; BOE monetary policy, financial services hub",
+        "metadata": {},
+    },
+    {
+        "id": "AUSTRALIA",
+        "label": "Country",
+        "name": "Australia",
+        "description": "Mining, commodities, Pacific trade, iron ore exporter",
+        "metadata": {},
+    },
+    {
+        "id": "ISRAEL",
+        "label": "Country",
+        "name": "Israel",
+        "description": "Defense tech, geopolitical flashpoint, Middle East conflicts",
+        "metadata": {},
+    },
+    {
+        "id": "FRANCE",
+        "label": "Country",
+        "name": "France",
+        "description": "Major EU economy; defense, luxury goods, energy",
+        "metadata": {},
+    },
+    {
+        "id": "CANADA",
+        "label": "Country",
+        "name": "Canada",
+        "description": "Energy, mining, banking; major US trade partner",
+        "metadata": {},
+    },
+    {
+        "id": "MEXICO",
+        "label": "Country",
+        "name": "Mexico",
+        "description": "Manufacturing, nearshoring, US trade partner",
+        "metadata": {},
+    },
+    {
+        "id": "INDONESIA",
+        "label": "Country",
+        "name": "Indonesia",
+        "description": "Largest Southeast Asian economy; nickel, palm oil",
+        "metadata": {},
+    },
+    {
+        "id": "TURKEY",
+        "label": "Country",
+        "name": "Turkey",
+        "description": "Emerging market; geopolitical bridge, currency volatility",
+        "metadata": {},
+    },
+    {
+        "id": "HONG_KONG",
+        "label": "Country",
+        "name": "Hong Kong",
+        "description": "Financial hub; gateway to Chinese markets",
+        "metadata": {},
+    },
 ]
 
 
@@ -1550,6 +1607,7 @@ STRUCTURAL_RELATIONSHIPS: list[tuple[str, str, str, str, str, dict]] = [
     ("Company", "COP", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
     ("Company", "SLB", "Sector", "ENERGY", "BELONGS_TO", {"source": "seed"}),
     # Defense / Aerospace
+    ("Company", "BA", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "LMT", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "RTX", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),
     ("Company", "NOC", "Sector", "INDUSTRIALS", "BELONGS_TO", {"source": "seed"}),

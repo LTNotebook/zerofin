@@ -12,7 +12,6 @@ from pydantic import ValidationError
 
 from zerofin.ai.verification import VerificationResult, needs_second_pass
 
-
 # =====================================================================
 # VerificationResult validator tests
 # =====================================================================

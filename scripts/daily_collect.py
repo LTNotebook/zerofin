@@ -21,6 +21,15 @@ from typing import Any
 
 import pendulum
 
+from zerofin.ai.mentions import (
+    MentionResult,
+    build_entity_list,
+    build_mention_chain,
+    create_mentioned_in_edges,
+    format_entity_list,
+    validate_mention_ids,
+)
+from zerofin.config import settings
 from zerofin.data.economic import EconomicCollector
 from zerofin.data.news import NewsCollector
 from zerofin.data.prices import PriceCollector
@@ -93,6 +102,116 @@ def run_pipeline() -> dict[str, Any]:
     except Exception as error:
         logger.error("News collection crashed: %s", error)
         results["collectors"]["news"] = {"error": str(error)}
+
+    # --- Mentions ---
+    # Run mention indexer on new articles if news collection stored any.
+    news_stored = results["collectors"].get("news", {}).get("stored", 0)
+    if news_stored > 0:
+        try:
+            with GraphStorage() as graph:
+                # Skip headline-only articles
+                skip_result = graph.run_query(
+                    "MATCH (a:Article) "
+                    "WHERE a.status = 'raw' AND (a.summary IS NULL OR a.summary = '') "
+                    "SET a.status = 'skipped_no_summary' "
+                    "RETURN count(a) AS skipped"
+                )
+                skipped = skip_result[0]["skipped"] if skip_result else 0
+                if skipped > 0:
+                    logger.info("Skipped %d headline-only articles", skipped)
+
+                # Fetch recently collected articles only (last 6 hours)
+                raw_articles = graph.run_query(
+                    "MATCH (a:Article) "
+                    "WHERE a.status = 'raw' "
+                    "  AND a.summary IS NOT NULL AND a.summary <> '' "
+                    "  AND a.collected_at > datetime() - duration({hours: 6}) "
+                    "RETURN a.id AS url, a.title AS title, a.summary AS summary, "
+                    "       a.source AS source, a.tier AS tier "
+                    "ORDER BY a.collected_at DESC"
+                )
+
+                if raw_articles:
+                    entities = build_entity_list(graph)
+                    entity_list_text = format_entity_list(entities)
+                    valid_ids = {e["id"] for e in entities}
+                    chain = build_mention_chain()
+
+                    chunk_size = settings.MENTIONS_CHUNK_SIZE
+                    total_edges = 0
+                    processed = 0
+                    failed = 0
+
+                    for i in range(0, len(raw_articles), chunk_size):
+                        chunk = raw_articles[i : i + chunk_size]
+                        inputs = [
+                            {
+                                "entity_list": entity_list_text,
+                                "article_text": f"{a['title']}\n\n{a['summary']}",
+                            }
+                            for a in chunk
+                        ]
+
+                        batch_results = chain.batch(
+                            inputs, config={"max_concurrency": chunk_size}
+                        )
+
+                        succeeded_urls = []
+                        failed_urls = []
+
+                        for article, result in zip(chunk, batch_results):
+                            if not isinstance(result, MentionResult):
+                                logger.warning(
+                                    "LLM failed for '%s' — marking mentions_failed",
+                                    article["title"][:60],
+                                )
+                                failed_urls.append(article["url"])
+                                continue
+
+                            validated = validate_mention_ids(result, valid_ids)
+                            edges = create_mentioned_in_edges(
+                                graph, article["url"], validated.mentioned_ids,
+                            )
+                            total_edges += edges
+                            succeeded_urls.append(article["url"])
+
+                        # Update status separately
+                        if succeeded_urls:
+                            graph.run_query(
+                                "UNWIND $urls AS url "
+                                "MATCH (a:Article {id: url}) "
+                                "SET a.status = 'mentions_done', "
+                                "    a.mentions_processed_at = datetime()",
+                                {"urls": succeeded_urls},
+                            )
+                        if failed_urls:
+                            graph.run_query(
+                                "UNWIND $urls AS url "
+                                "MATCH (a:Article {id: url}) "
+                                "SET a.status = 'mentions_failed', "
+                                "    a.mentions_processed_at = datetime()",
+                                {"urls": failed_urls},
+                            )
+                        processed += len(succeeded_urls)
+                        failed += len(failed_urls)
+
+                    logger.info(
+                        "Mentions: %d processed, %d failed, %d edges",
+                        processed, failed, total_edges,
+                    )
+                    results["collectors"]["mentions"] = {
+                        "processed": processed,
+                        "failed": failed,
+                        "edges_created": total_edges,
+                        "skipped": skipped,
+                    }
+                else:
+                    logger.info("Mentions: no articles to process")
+        except Exception as error:
+            logger.error("Mention processing crashed: %s", error)
+            results["collectors"]["mentions"] = {"error": str(error)}
+    else:
+        logger.info("Mentions: skipped (no new articles)")
 
     # --- Summary ---
     end_time = pendulum.now("UTC")

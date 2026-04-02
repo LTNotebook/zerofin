@@ -13,7 +13,6 @@ import pytest
 
 from zerofin.ai.provider import PROVIDERS, get_available_providers, get_llm
 
-
 # =====================================================================
 # Provider registry tests
 # =====================================================================

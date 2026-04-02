@@ -28,7 +28,10 @@ VOLATILITY_TICKERS = {"^VIX", "^VVIX", "^MOVE", "^GVZ", "^OVX"}
 # (e.g., 4.5% for 10-year yield) and need first differences, not log returns.
 # Log returns on yield levels conflate basis-point moves with multiplicative
 # price changes, which makes no financial sense.
-YIELD_INDEX_TICKERS = {"^TNX", "^TYX", "^FVX", "^IRX"}
+# Yield index tickers removed from tracking — tautological duplicates of FRED
+# series (DGS10, DGS30, DGS5, DGS3MO). Kept as empty set so any code
+# referencing this still works without error.
+YIELD_INDEX_TICKERS: set[str] = set()
 
 # Minimum variance threshold — series with std below this are treated
 # as constant (zero information) and excluded from analysis.

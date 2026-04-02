@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Tickers that failed during the 3-year backfill
 MISSING_TICKERS = [
     "GOOGL", "GC=F", "BZ=F", "ORCL", "MRVL", "RTX",
-    "SLB", "XLP", "VXUS", "KSA", "^W5000", "^IRX",
+    "SLB", "XLP", "VXUS", "KSA", "^W5000",
 ]
 
 # Standard price precision (4 decimal places)

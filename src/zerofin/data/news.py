@@ -16,7 +16,7 @@ How it works:
 
 Why Article nodes bypass create_entity():
 Article is not one of the 12 FinDKG entity types — it's a content node
-that will later be connected TO entities via MENTIONED_IN edges. We use
+that will later be connected TO entities via MENTIONS edges. We use
 run_query() with a direct MERGE to create Article nodes without needing
 to modify ENTITY_LABELS.
 """
@@ -62,14 +62,21 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 # Only MUST-HAVE feeds are included here. Nice-to-haves can be added
 # later without changing any code — just append to this list.
 
+VALID_TIERS = {"1", "2", "3"}
+
+# Source tiers control how articles are processed downstream:
+#   tier 1: Official/government — typed relationship extraction to graph
+#   tier 2: Deep analysis — event tagging + co-mention indexing
+#   tier 3: News summaries — co-mention indexing only
 RSS_FEEDS: list[dict[str, str]] = [
-    # ── Major Financial News ──────────────────────────────────────────
+    # ── Major Financial News (Tier 3) ────────────────────────────────
     {
         "name": "CNBC Finance",
         "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html",
         "category": "general",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
     {
         "name": "CNBC Economy",
@@ -77,6 +84,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "economy",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
     {
         "name": "CNBC Earnings",
@@ -84,6 +92,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "earnings",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
     {
         "name": "MarketWatch Top Stories",
@@ -91,6 +100,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "general",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
     {
         "name": "MarketWatch Real-Time Headlines",
@@ -98,6 +108,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
+        "tier": "3",
     },
     {
         "name": "MarketWatch Bulletins",
@@ -105,14 +116,16 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
+        "tier": "3",
     },
-    # Yahoo Finance Headlines dropped — 65% personal finance clickbait. Tickers feed is cleaner.
+    # Yahoo Finance Headlines dropped — 65% personal finance clickbait.
     {
         "name": "Yahoo Finance Tickers",
         "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,QQQ,AAPL&region=US&lang=en-US",
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
+        "tier": "3",
     },
     {
         "name": "Seeking Alpha Latest Articles",
@@ -120,6 +133,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "analysis",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
     {
         "name": "Seeking Alpha Market News",
@@ -127,6 +141,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "general",
         "priority": "must_have",
         "content_type": "headline_only",
+        "tier": "3",
     },
     {
         "name": "Seeking Alpha Wall St. Breakfast",
@@ -134,14 +149,16 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "analysis",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "3",
     },
-    # ── Economic Data & Government Sources ────────────────────────────
+    # ── Official Government Sources (Tier 1) ─────────────────────────
     {
         "name": "Federal Reserve All Press Releases",
         "url": "https://www.federalreserve.gov/feeds/press_all.xml",
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
     {
         "name": "Federal Reserve Monetary Policy",
@@ -149,6 +166,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
     {
         "name": "Federal Reserve Speeches",
@@ -156,6 +174,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
     {
         "name": "Fed Chair Powell Speeches",
@@ -163,6 +182,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
     {
         "name": "Fed H.15 Interest Rates",
@@ -170,99 +190,24 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "economy",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
-    # NOTE: BLS feeds return 403 Forbidden. BLS data comes through FRED instead.
-    # If BLS fixes their RSS, add back: empsit, cpi, ppi, jolts, eci, realer, prod2, ximpim
-    {
-        "name": "BEA All Releases",
-        "url": "https://apps.bea.gov/rss/rss.xml",
-        "category": "economy",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    # ── Sector-Specific ───────────────────────────────────────────────
-    {
-        "name": "EIA Today in Energy",
-        "url": "https://www.eia.gov/rss/todayinenergy.xml",
-        "category": "sector_energy",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
+    # NOTE: BLS feeds return 403 Forbidden. BLS data comes through FRED.
     {
         "name": "EIA Press Releases",
         "url": "https://www.eia.gov/rss/press_rss.xml",
         "category": "sector_energy",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "1",
     },
-    # TechCrunch dropped — tech industry focus, 65% noise for financial intelligence
-    {
-        "name": "OilPrice.com",
-        "url": "https://oilprice.com/rss/main",
-        "category": "sector_energy",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "Defense News",
-        "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
-        "category": "sector_defense",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    # Fierce Pharma dropped — RSS feed broken, all titles return "Untitled"
-    {
-        "name": "HousingWire",
-        "url": "https://www.housingwire.com/feed/",
-        "category": "sector_realestate",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    # ── International ─────────────────────────────────────────────────
-    {
-        "name": "BBC Business",
-        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
-        "name": "SCMP Business",
-        "url": "https://www.scmp.com/rss/92/feed",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    {
-        "name": "SCMP China Economy",
-        "url": "https://www.scmp.com/rss/318421/feed",
-        "category": "international",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    # ── Crypto ────────────────────────────────────────────────────────
-    {
-        "name": "CoinDesk",
-        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "category": "crypto",
-        "priority": "must_have",
-        "content_type": "summary",
-    },
-    # CoinTelegraph and The Block dropped — CoinDesk covers crypto with less noise
-    # ── Central Banks (non-Fed) ───────────────────────────────────────
     {
         "name": "ECB Press Releases",
         "url": "https://www.ecb.europa.eu/rss/press.html",
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "full_text",
-    },
-    {
-        "name": "ECB Statistical Releases",
-        "url": "https://www.ecb.europa.eu/rss/statpress.html",
-        "category": "central_bank",
-        "priority": "must_have",
-        "content_type": "summary",
+        "tier": "1",
     },
     {
         "name": "Bank of Japan",
@@ -270,36 +215,7 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "central_bank",
         "priority": "must_have",
         "content_type": "summary",
-    },
-    # ── Government / Regulatory ───────────────────────────────────────
-    # GovInfo Federal Register dropped — titles contain zero info (just volume/date)
-    # ── Earnings & Wire Services ──────────────────────────────────────
-    # PR Newswire dropped — firehose of irrelevant press releases (65% noise)
-    # GlobeNewsWire feeds dropped — All Releases too noisy, Earnings only micro-caps,
-    # M&A flooded with UK Form 8.3 filings
-    # ── Alternative / Analytical ──────────────────────────────────────
-    {
-        "name": "Calculated Risk",
-        "url": "https://feeds.feedburner.com/CalculatedRisk",
-        "category": "analysis",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    # Marginal Revolution dropped — mostly cultural commentary, cryptic titles
-    # ── Healthcare / Pharma ─────────────────────────────────────────────
-    {
-        "name": "STAT News",
-        "url": "https://www.statnews.com/feed/",
-        "category": "sector_healthcare",
-        "priority": "must_have",
-        "content_type": "full_text",
-    },
-    {
-        "name": "BioPharma Dive",
-        "url": "https://www.biopharmadive.com/feeds/news/",
-        "category": "sector_healthcare",
-        "priority": "must_have",
-        "content_type": "summary",
+        "tier": "1",
     },
     {
         "name": "FDA Press Releases",
@@ -307,14 +223,132 @@ RSS_FEEDS: list[dict[str, str]] = [
         "category": "sector_healthcare",
         "priority": "must_have",
         "content_type": "summary",
+        "tier": "1",
     },
-    # ── Metals / Mining ─────────────────────────────────────────────────
+    # ── Deep Analysis Sources (Tier 2) ───────────────────────────────
+    # Summary-only government sources — good data but too short for
+    # typed extraction, so Tier 2 instead of Tier 1.
+    {
+        "name": "BEA All Releases",
+        "url": "https://apps.bea.gov/rss/rss.xml",
+        "category": "economy",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
+    {
+        "name": "ECB Statistical Releases",
+        "url": "https://www.ecb.europa.eu/rss/statpress.html",
+        "category": "central_bank",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
+    {
+        "name": "EIA Today in Energy",
+        "url": "https://www.eia.gov/rss/todayinenergy.xml",
+        "category": "sector_energy",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
+    {
+        "name": "OilPrice.com",
+        "url": "https://oilprice.com/rss/main",
+        "category": "sector_energy",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "2",
+    },
+    {
+        "name": "Defense News",
+        "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
+        "category": "sector_defense",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
+    {
+        "name": "HousingWire",
+        "url": "https://www.housingwire.com/feed/",
+        "category": "sector_realestate",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "2",
+    },
+    {
+        "name": "Calculated Risk",
+        "url": "https://feeds.feedburner.com/CalculatedRisk",
+        "category": "analysis",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "2",
+    },
+    {
+        "name": "STAT News",
+        "url": "https://www.statnews.com/feed/",
+        "category": "sector_healthcare",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "2",
+    },
+    {
+        "name": "BioPharma Dive",
+        "url": "https://www.biopharmadive.com/feeds/news/",
+        "category": "sector_healthcare",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "2",
+    },
     {
         "name": "Mining.com",
         "url": "https://www.mining.com/feed/",
         "category": "sector_metals",
         "priority": "must_have",
         "content_type": "full_text",
+        "tier": "2",
+    },
+    {
+        "name": "TechCrunch",
+        "url": "https://techcrunch.com/feed/",
+        "category": "sector_tech",
+        "priority": "must_have",
+        "content_type": "full_text",
+        "tier": "3",
+    },
+    # ── International News (Tier 3) ──────────────────────────────────
+    {
+        "name": "BBC Business",
+        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "category": "international",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "3",
+    },
+    {
+        "name": "SCMP Business",
+        "url": "https://www.scmp.com/rss/92/feed",
+        "category": "international",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "3",
+    },
+    {
+        "name": "SCMP China Economy",
+        "url": "https://www.scmp.com/rss/318421/feed",
+        "category": "international",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "3",
+    },
+    # ── Crypto (Tier 3) ──────────────────────────────────────────────
+    {
+        "name": "CoinDesk",
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "category": "crypto",
+        "priority": "must_have",
+        "content_type": "summary",
+        "tier": "3",
     },
 ]
 
@@ -528,7 +562,7 @@ class NewsCollector(BaseCollector):
     the AI pipeline will:
     1. Read article text
     2. Extract mentioned entities (companies, indicators, etc.)
-    3. Create MENTIONED_IN edges linking entities to articles
+    3. Create MENTIONS edges linking articles to entities
     4. Generate embeddings for vector similarity search
 
     Usage:
@@ -640,6 +674,12 @@ class NewsCollector(BaseCollector):
         feed_name = feed_config["name"]
         feed_url = feed_config["url"]
         category = feed_config["category"]
+        tier = feed_config.get("tier", "3")
+        if tier not in VALID_TIERS:
+            raise ValueError(
+                f"Invalid tier '{tier}' for feed '{feed_name}'. "
+                f"Must be one of: {VALID_TIERS}"
+            )
         content_type = feed_config["content_type"]
 
         logger.info("Fetching feed: %s", feed_name)
@@ -732,6 +772,7 @@ class NewsCollector(BaseCollector):
                     "published_date": published,
                     "collected_at": collected_at,
                     "content_type": content_type,
+                    "tier": tier,
                     "status": "raw",
                 }
             )

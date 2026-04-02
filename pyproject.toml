@@ -26,6 +26,9 @@ dependencies = [
     "langchain-deepseek>=1.0.1",
     "langchain-openai>=1.1.12",
     "langchain-anthropic>=1.4.0",
+    "platformdirs>=4.9.4",
+    "langchain-experimental>=0.4.1",
+    "instructor>=1.14.5",
 ]
 
 [dependency-groups]

@@ -41,9 +41,11 @@ zerofin/
 │       │   ├── monthly.py       # Monthly FRED pipeline
 │       │   ├── filters.py       # FDR, stability, plausibility filters
 │       │   └── transforms.py    # Returns, z-score, winsorize, beta removal
-│       ├── ai/            # LLM verification pipeline (Phase 3)
-│       │   ├── provider.py    # LLM provider registry (DeepSeek, Groq, OpenRouter)
-│       │   └── verification.py # Correlation verification chain + prompt
+│       ├── ai/            # LLM pipelines (verification, extraction, mentions)
+│       │   ├── provider.py      # LLM provider registry (DeepSeek, Groq, OpenRouter)
+│       │   ├── verification.py  # Correlation verification chain + prompt
+│       │   ├── extraction.py    # Entity/relationship extraction (Tier 1 sources only)
+│       │   └── mentions.py      # Entity mention identification (all articles)
 │       └── delivery/      # Briefing generation, alerts (Phase 4)
 ├── scripts/               # Pipeline scripts (collect, correlate, verify, seed)
 │   └── tests/             # Functional test scripts (not pytest)
@@ -113,11 +115,15 @@ zerofin/
 - LLM provider is swappable via config — DeepSeek, Groq, OpenRouter all supported
 - Two-pass verification: DeepSeek V3 (bulk, pass 1) + Claude Sonnet 4.6 (borderline review, pass 2)
 - Verification prompt uses generalized principles, not sector-specific rules (prevents overfitting)
+- Article pipeline v2: mentions for all articles, typed extraction ONLY for Tier 1 official sources
+- Feed tiers: Tier 1 (government/official), Tier 2 (deep analysis), Tier 3 (news summaries)
+- Daily briefings use raw articles + prices — no extraction needed, LLM reasons at query time
 - ALWAYS test LLM calls with 1 API call before running full batch — don't waste credits debugging
+- ALWAYS test output paths and config before running pipelines that cost money
 - Data collection plugins follow a standard interface (see `data/collector.py`)
 
 ## Entity and Relationship Schema
-- 12 entity types and 16 relationship types based on FinDKG ontology (+ DEPENDS_ON)
+- 12 entity types and 17 relationship types based on FinDKG ontology (+ DEPENDS_ON, DISRUPTS, PARTNERS_WITH, INVESTS_IN)
 - Full schema details in Obsidian docs: `10 - Entity and Relationship Types.md`
 - All relationships have: confidence, times_tested, times_confirmed, valid_from, valid_until, source, status
 
@@ -136,7 +142,7 @@ zerofin/
 - ALWAYS suggest research when uncertain about domain-specific decisions
 - ALWAYS flag new library installations before running — explain what's being added and why
 - ALWAYS verify script paths exist before citing them — don't guess filenames
-- ALWAYS clear the market_data table before re-running backfills (creates duplicates, not upserts)
+- market_data uses ON CONFLICT upsert — safe to re-run backfills without clearing
 - DeepSeek pipeline MUST use LangChain for orchestration
 
 ## Working Style

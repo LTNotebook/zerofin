@@ -596,7 +596,12 @@ def _replace_candidates_atomic(
         MATCH (a {id: item.a_id})
         MATCH (b {id: item.b_id})
         MERGE (a)-[r:CORRELATES_WITH {lag_days: item.lag}]->(b)
+        WITH r, item, r.status AS old_status, r.llm_verdict AS old_verdict
         SET r += item.props
+        SET r.status = CASE
+            WHEN old_verdict IS NOT NULL THEN old_status
+            ELSE item.props.status
+        END
         RETURN count(r) AS stored
     """
     result = graph.run_query(store_query, {"batch": batch})
@@ -632,6 +637,7 @@ def _clear_old_candidates(graph: GraphStorage, window_days: int) -> int:
             status: 'candidate',
             window_days: $window_days
         }]->()
+        WHERE r.llm_verdict IS NULL
         DELETE r RETURN count(r) AS deleted
     """
     result = graph.run_query(query, {"window_days": window_days})
@@ -667,12 +673,18 @@ def _store_candidates_batch(
 
     # UNWIND sends everything in one Cypher call instead of N separate ones.
     # We match nodes by id across all labels — works because ids are unique.
+    # Preserves status on edges that already have an LLM verdict.
     query = """
         UNWIND $batch AS item
         MATCH (a {id: item.a_id})
         MATCH (b {id: item.b_id})
         MERGE (a)-[r:CORRELATES_WITH {lag_days: item.lag}]->(b)
+        WITH r, item, r.status AS old_status, r.llm_verdict AS old_verdict
         SET r += item.props
+        SET r.status = CASE
+            WHEN old_verdict IS NOT NULL THEN old_status
+            ELSE item.props.status
+        END
         RETURN count(r) AS stored
     """
 

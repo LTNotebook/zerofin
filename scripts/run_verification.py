@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pendulum
+
 # UTF-8 output for Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -33,6 +35,7 @@ from zerofin.ai.verification import (  # noqa: E402
 )
 from zerofin.config import settings  # noqa: E402
 from zerofin.storage.graph import GraphStorage  # noqa: E402
+from zerofin.storage.postgres import PostgresStorage  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,7 +85,12 @@ SET r.llm_verdict = row.verdict,
     END
 """
 
-CSV_PATH = Path(__file__).resolve().parent.parent / "logs" / "verification_results.csv"
+def _get_csv_path() -> Path:
+    """Build the timestamped CSV path in the verification output directory."""
+    today = pendulum.now("UTC").format("YYYY-MM-DD")
+    output_dir = Path(settings.LOG_OUTPUT_DIR) / "verification"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir / f"verification_{today}.csv"
 
 
 def fetch_pending(graph: GraphStorage) -> list[dict]:
@@ -198,8 +206,8 @@ def verify_batch(rows: list[dict], chain: Any = None) -> list[dict]:
 
 
 def write_csv(results: list[dict]) -> None:
-    """Write results to CSV for audit."""
-    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    """Write results to a timestamped CSV for audit."""
+    csv_path = _get_csv_path()
 
     fieldnames = [
         "entity_a_id", "entity_a_name", "entity_b_id", "entity_b_name",
@@ -208,12 +216,12 @@ def write_csv(results: list[dict]) -> None:
         "reasoning", "relationship_category",
     ]
 
-    with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
 
-    logger.info("CSV written to %s", CSV_PATH)
+    logger.info("CSV written to %s", csv_path)
 
 
 def write_to_neo4j(graph: GraphStorage, results: list[dict]) -> None:
@@ -251,7 +259,39 @@ def log_summary(results: list[dict]) -> None:
     logger.info("=" * 60)
 
 
+def write_to_postgres(results: list[dict], duration_seconds: float) -> None:
+    """Write verification run summary and detailed results to Postgres."""
+    promoted = sum(
+        1 for r in results
+        if r["verdict"] in ("confirmed_plausible", "likely_plausible")
+    )
+    rejected = sum(
+        1 for r in results
+        if r["verdict"] in ("confirmed_spurious", "likely_spurious")
+    )
+    uncertain = sum(1 for r in results if r["verdict"] == "uncertain")
+
+    now = pendulum.now("UTC").to_iso8601_string()
+    started = pendulum.now("UTC").subtract(seconds=duration_seconds).to_iso8601_string()
+
+    with PostgresStorage() as db:
+        db.insert_verification_run(
+            started_at=started,
+            finished_at=now,
+            duration_seconds=duration_seconds,
+            total_pairs=len(results),
+            promoted=promoted,
+            rejected=rejected,
+            uncertain=uncertain,
+            pass1_model=settings.LLM_MODEL,
+            pass2_model=settings.VERIFICATION_PASS2_MODEL,
+            results=results,
+        )
+
+
 def main() -> None:
+    run_start = time.time()
+
     with GraphStorage() as graph:
         # 1. Fetch pending relationships
         rows = fetch_pending(graph)
@@ -312,10 +352,18 @@ def main() -> None:
                 r = results[i]
                 review_inputs.append({
                     "entity_a_id": r["entity_a_id"],
-                    "entity_a_desc": _escape_braces(rows[i].get("entity_a_desc") or rows[i].get("entity_a_name") or ""),
+                    "entity_a_desc": _escape_braces(
+                        rows[i].get("entity_a_desc")
+                        or rows[i].get("entity_a_name")
+                        or ""
+                    ),
                     "entity_a_type": rows[i]["entity_a_type"],
                     "entity_b_id": r["entity_b_id"],
-                    "entity_b_desc": _escape_braces(rows[i].get("entity_b_desc") or rows[i].get("entity_b_name") or ""),
+                    "entity_b_desc": _escape_braces(
+                        rows[i].get("entity_b_desc")
+                        or rows[i].get("entity_b_name")
+                        or ""
+                    ),
                     "entity_b_type": rows[i]["entity_b_type"],
                     "correlation": r["correlation"],
                     "direction": r["direction"],
@@ -336,7 +384,9 @@ def main() -> None:
                     results[idx]["verdict"] = review_result.verdict
                     results[idx]["confidence"] = review_result.confidence
                     results[idx]["mechanism"] = review_result.mechanism
-                    results[idx]["alternative_explanations"] = review_result.alternative_explanations
+                    results[idx]["alternative_explanations"] = (
+                        review_result.alternative_explanations
+                    )
                     results[idx]["reasoning"] = review_result.reasoning
                     results[idx]["relationship_category"] = review_result.relationship_category
                     if old_verdict != review_result.verdict:
@@ -359,9 +409,11 @@ def main() -> None:
         log_summary(results)
 
         # 8. Write back to Neo4j
-        # Commented out until we've audited the results
-        # write_to_neo4j(graph, results)
-        logger.info("Neo4j write is DISABLED — uncomment after auditing CSV")
+        write_to_neo4j(graph, results)
+
+        # 9. Write audit trail to Postgres
+        duration = time.time() - run_start
+        write_to_postgres(results, duration)
 
 
 if __name__ == "__main__":
